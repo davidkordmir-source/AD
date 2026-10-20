@@ -31,6 +31,7 @@ class FastSettings:
     merge_coverage: bool = False
     max_grid_mcells: int = 25
     auto_coarsen: bool = True
+    curvature_enabled: bool = True
 
     @property
     def radius_m(self):
@@ -59,3 +60,5 @@ class FastSettings:
             raise ValueError("سقف شبکه باید عدد صحیح از ۱ تا ۱۰۰ میلیون سلول باشد.")
         if not isinstance(self.auto_coarsen, bool):
             raise ValueError("تنظیم خودکار پیکسل باید روشن یا خاموش باشد.")
+        if not isinstance(self.curvature_enabled, bool):
+            raise ValueError("تنظیم انحنای زمین باید روشن یا خاموش باشد.")

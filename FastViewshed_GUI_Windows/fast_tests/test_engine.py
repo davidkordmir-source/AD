@@ -62,6 +62,8 @@ class FastTerrainTests(unittest.TestCase):
         self.assertEqual(report["status"], "completed")
         for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
             self.assertTrue((folder/("visibility"+suffix)).exists())
+            self.assertTrue((folder/("visible"+suffix)).exists())
+        self.assertEqual(report["primary_output"], "visible.shp")
         return folder, report
 
     def statuses(self, folder, x, y, name="visibility"):
@@ -87,6 +89,8 @@ class FastTerrainTests(unittest.TestCase):
         folder, _ = self.run_case(self.inputs(ridge=True))
         self.assertEqual(self.statuses(folder, 500355, 3950505), [1])
         self.assertEqual(self.statuses(folder, 500755, 3950505), [0])
+        self.assertEqual(self.statuses(folder, 500355, 3950505, "visible"), [1])
+        self.assertEqual(self.statuses(folder, 500755, 3950505, "visible"), [])
 
     def test_tall_target_visible_over_ridge(self):
         folder, _ = self.run_case(self.inputs(ridge=True), target=300)
@@ -96,6 +100,7 @@ class FastTerrainTests(unittest.TestCase):
         folder, _ = self.run_case(self.inputs(gap=True))
         self.assertEqual(self.statuses(folder, 500355, 3950505), [1])
         self.assertEqual(self.statuses(folder, 500755, 3950505), [2])
+        self.assertEqual(self.statuses(folder, 500755, 3950505, "visible"), [])
 
     def test_wrap_across_north(self):
         folder, _ = self.run_case(self.inputs(start="۳۵۰", end="۱۰", x=500505), radius=400)
@@ -190,6 +195,41 @@ class FastTerrainTests(unittest.TestCase):
         folder, report = self.run_case(self.inputs(), cell_size=1, max_grid_mcells=2, auto_coarsen=False)
         self.assertEqual(report["observers"][0]["cell_m"], 1)
         self.assertEqual(self.statuses(folder, 500355, 3950505), [1])
+
+    def test_visible_shapefile_matches_only_visible_class_not_whole_sector(self):
+        folder, report = self.run_case(self.inputs(ridge=True))
+        visible_ds = ogr.Open(str(folder/"visible.shp"))
+        all_ds = ogr.Open(str(folder/"visibility.shp"))
+        visible_layer = visible_ds.GetLayer(0)
+        self.assertGreater(visible_layer.GetFeatureCount(), 0)
+        for f in visible_layer:
+            self.assertEqual(f.GetField("status"), 1)
+            self.assertEqual(f.GetField("state"), "visible")
+            self.assertEqual(f.GetField("src_id"), 0)
+        def combined(layer, status):
+            geometry = ogr.Geometry(ogr.wkbMultiPolygon)
+            layer.ResetReading()
+            for f in layer:
+                if f.GetField("status") == status:
+                    geometry.AddGeometry(f.GetGeometryRef())
+            return geometry.UnionCascaded()
+        actual = combined(visible_layer, 1)
+        expected = combined(all_ds.GetLayer(0), 1)
+        hidden = combined(all_ds.GetLayer(0), 0)
+        self.assertAlmostEqual(actual.SymmetricDifference(expected).GetArea(), 0, places=6)
+        self.assertAlmostEqual(actual.Intersection(hidden).GetArea(), 0, places=6)
+        self.assertGreater(hidden.GetArea(), 0)
+        self.assertGreater(report["observers"][0]["areas_m2"]["0"], 0)
+        self.assertTrue((folder/"README_RESULTS_FA.txt").exists())
+        self.assertIn('value="1"', (folder/"visible.qml").read_text())
+
+    def test_visible_output_retains_per_observer_identifiers_in_overlap(self):
+        folder, _ = self.run_case(self.inputs(ridge=True, extra=[(500855, "260", "280")]))
+        ds = ogr.Open(str(folder/"visible.shp"))
+        point = ogr.Geometry(ogr.wkbPoint)
+        point.AddPoint_2D(500755, 3950505)
+        ids = [f.GetField("src_id") for f in ds.GetLayer(0) if f.GetGeometryRef().Intersects(point)]
+        self.assertEqual(ids, [1])
 
 
 if __name__ == "__main__":

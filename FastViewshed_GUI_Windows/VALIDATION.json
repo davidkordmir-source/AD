@@ -1,5 +1,5 @@
 {
-  "application": "Fast Sector Viewshed 2.1.0 / independent Qt GUI + GDAL",
+  "application": "Fast Sector Viewshed 2.2.0 / independent Qt GUI + GDAL",
   "tested_runtime": {
     "python": "3.13.5",
     "gdal": "3.10.3",
@@ -9,11 +9,11 @@
   },
   "suite": {
     "command": "python -m unittest discover -s fast_tests -v",
-    "tests": 25,
-    "passed": 25,
+    "tests": 29,
+    "passed": 29,
     "skipped": 0,
     "failed": 0,
-    "seconds": 1.9496311510010855
+    "seconds": 2.297
   },
   "large_grid_regression": {
     "synthetic": true,
@@ -26,25 +26,62 @@
       {
         "max_grid_mcells": 25,
         "auto_coarsen": true,
-        "actual_pixel_m": 11.454326923076925,
-        "radius_m": 28590,
-        "seconds": 2.4854809759999625,
+        "actual_pixel_m": 40.06410256410257,
+        "radius_m": 100000,
+        "receiver_m": 2,
+        "target_m": 100,
+        "counts": {
+          "0": 5277296,
+          "1": 1246382,
+          "2": 0
+        },
+        "seconds": 2.6995066609961214,
         "status": "completed"
       },
       {
         "max_grid_mcells": 40,
         "auto_coarsen": false,
-        "actual_pixel_m": 10,
-        "radius_m": 28590,
-        "seconds": 1.5165691259899177,
+        "actual_pixel_m": 34.97726477789437,
+        "radius_m": 100000,
+        "receiver_m": 2,
+        "target_m": 100,
+        "counts": {
+          "0": 6923884,
+          "1": 1635305,
+          "2": 0
+        },
+        "seconds": 1.613421075991937,
         "status": "completed"
       }
-    ]
+    ],
+    "tested_version": "2.2.0"
   },
   "limitations": [
     "Windows installer and Windows GUI launch not executed here.",
     "Large-grid validation uses synthetic data, not the user DEM.",
     "No equivalence to Esri or Global Mapper is established.",
     "Automatic coarsening reduces spatial detail and can alter visibility. Disabling it preserves requested pixels; sufficient RAM is needed."
-  ]
+  ],
+  "visible_output_regression": {
+    "primary_output": "visible.shp",
+    "checks": [
+      "Geometry equals status=1 from all-class output",
+      "Hidden terrain behind ridge excluded",
+      "Unknown NoData paths excluded",
+      "Per-observer source identifiers retained",
+      "Red visible-only preview with transparent other classes",
+      "Standalone bundle exports visible-only Shapefile"
+    ],
+    "comparison_with_user_dem_or_global_mapper": "Not performed; input data and matching settings are unavailable."
+  },
+  "curvature_sanity_check": {
+    "synthetic_flat_terrain": true,
+    "radius_m": 100000,
+    "observer_at_point_m": 2,
+    "target_on_cells_m": 100,
+    "refraction": 0.13,
+    "at_20km": "visible with and without curvature",
+    "at_70km": "hidden with curvature, visible without curvature",
+    "cause_of_user_image_difference": "not determined"
+  }
 }

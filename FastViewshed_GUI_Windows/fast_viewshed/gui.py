@@ -60,7 +60,7 @@ class AnalysisWorker(QtCore.QObject):
 class FastWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fast Sector Viewshed 2.1 | دیدپذیری قطاعی مستقل")
+        self.setWindowTitle("Fast Sector Viewshed 2.2 | دیدپذیری قطاعی مستقل")
         self.resize(1260, 860)
         self.setMinimumSize(940, 650)
         self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -70,6 +70,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.loaded_shape = None
         self.result_folder = None
         self.preview_images = {}
+        self.visible_previews = {}
         self.inputs = {}
         self.unit_boxes = {}
         self.build_ui()
@@ -146,12 +147,19 @@ class FastWindow(QtWidgets.QMainWindow):
         memory_note = QtWidgets.QLabel("برای حفظ پیکسل درخواستی، تنظیم خودکار را خاموش و سقف را افزایش دهید. شبکهٔ بزرگ حافظه و زمان بیشتری مصرف می‌کند؛ این عدد سقف مصرف RAM نیست.")
         memory_note.setWordWrap(True)
         grid.addWidget(memory_note, 7, 0, 1, 3)
+        self.curvature = QtWidgets.QCheckBox("محاسبهٔ انحنای زمین و شکست جوی")
+        self.curvature.setChecked(True)
+        self.curvature.toggled.connect(self.inputs["refraction"].setEnabled)
+        grid.addWidget(self.curvature, 8, 0, 1, 3)
+        curvature_note = QtWidgets.QLabel("برای مقایسه با Global Mapper، وضعیت انحنای زمین و ضریب شکست هر دو اجرا را یکسان کنید؛ اثر آن در شعاع ۱۰۰ کیلومتر زیاد است.")
+        curvature_note.setWordWrap(True)
+        grid.addWidget(curvature_note, 9, 0, 1, 3)
         output, grid = self.group("خروجی", form)
         self.path_row(grid, 0, "output_dir", "پوشهٔ ذخیره", self.choose_output)
         self.inputs["output_dir"].setText(str(Path.home()/"Documents"/"FastViewshedResults"))
         self.merge = QtWidgets.QCheckBox("تولید coverage.shp با ادغام پوشش نقاط (زمان بیشتر)")
         grid.addWidget(self.merge, 1, 0, 1, 3)
-        description = QtWidgets.QLabel("visibility.shp: دیدپذیری هر نقطه با شناسهٔ منبع\nsectors.shp: مرز قطاع‌ها\nسبز: قابل رؤیت • قرمز: پنهان • خاکستری: نامعلوم / فقدان DEM")
+        description = QtWidgets.QLabel("خروجی اصلی: visible.shp، فقط محدودهٔ قابل‌دید\nvisibility.shp: هر سه کلاس دیدپذیری\nsectors.shp: فقط مرز تحلیل؛ برای نمایش ویوشد visible.shp را باز کنید.")
         description.setWordWrap(True)
         grid.addWidget(description, 2, 0, 1, 3)
         form.addStretch()
@@ -163,12 +171,19 @@ class FastWindow(QtWidgets.QMainWindow):
         self.preview_selector = QtWidgets.QComboBox()
         self.preview_selector.currentIndexChanged.connect(self.show_preview)
         preview_layout.addWidget(self.preview_selector)
+        self.preview_mode = QtWidgets.QComboBox()
+        self.preview_mode.addItem("فقط محدودهٔ قابل‌دید — قرمز", "visible")
+        self.preview_mode.addItem("همهٔ کلاس‌ها — قابل‌دید، پنهان، نامعلوم", "classes")
+        self.preview_mode.currentIndexChanged.connect(self.show_preview)
+        preview_layout.addWidget(self.preview_mode)
         self.image = QtWidgets.QLabel("پیش‌نمایش هر نقطه پس از محاسبه نمایش داده می‌شود.")
         self.image.setAlignment(QtCore.Qt.AlignCenter)
         self.image.setMinimumSize(300, 300)
         self.image.setStyleSheet("background:#f3f6f8; border:1px solid #cad4df; border-radius:8px;")
         preview_layout.addWidget(self.image, 1)
-        preview_layout.addWidget(QtWidgets.QLabel("پیش‌نمایش نسبت به شمال واقعی • سفید: بیرون قطاع"))
+        self.preview_note = QtWidgets.QLabel("قرمز: قابل‌دید • سفید: سایر نواحی • خروجی: visible.shp")
+        self.preview_note.setWordWrap(True)
+        preview_layout.addWidget(self.preview_note)
         tabs.addTab(preview_tab, "پیش‌نمایش دیدپذیری")
         self.log = QtWidgets.QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -305,6 +320,7 @@ class FastWindow(QtWidgets.QMainWindow):
         data["resolution_factor"] = self.resolution.currentData()
         data["merge_coverage"] = self.merge.isChecked()
         data["auto_coarsen"] = self.auto_coarsen.isChecked()
+        data["curvature_enabled"] = self.curvature.isChecked()
         config = FastSettings(**data)
         config.validate()
         return config
@@ -321,6 +337,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.open_button.setEnabled(False)
         self.preview_selector.clear()
         self.preview_images.clear()
+        self.visible_previews.clear()
         self.image.clear()
         self.progress_bar.setValue(0)
         self.run_button.setEnabled(False)
@@ -328,7 +345,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.read_fields.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.cancel_event.clear()
-        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 2.1 ──")
+        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 2.2 ──")
         self.status.setText("در حال پردازش…")
         self.thread = QtCore.QThread(self)
         self.worker = AnalysisWorker(config, self.cancel_event)
@@ -389,14 +406,23 @@ class FastWindow(QtWidgets.QMainWindow):
         if pixmap.width() > 1400 or pixmap.height() > 1400:
             pixmap = pixmap.scaled(1400, 1400, QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation)
         self.preview_images[fid] = pixmap
+        visible_rgba = np.zeros((*classes.shape, 4), dtype=np.uint8)
+        visible_rgba[classes == 1] = (190, 30, 45, 235)
+        visible_image = QtGui.QImage(visible_rgba.data, visible_rgba.shape[1], visible_rgba.shape[0],
+                                     visible_rgba.strides[0], QtGui.QImage.Format_RGBA8888).copy()
+        self.visible_previews[fid] = QtGui.QPixmap.fromImage(visible_image)
         self.preview_selector.addItem(f"نقطه {fid} | اندازهٔ پیکسل {metadata['cell']:.2f} متر", fid)
         self.preview_selector.setCurrentIndex(self.preview_selector.count()-1)
         self.show_preview()
 
     def show_preview(self, index=None):
         fid = self.preview_selector.currentData()
-        if fid in self.preview_images:
-            self.image.setPixmap(self.preview_images[fid].scaled(self.image.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation))
+        only_visible = self.preview_mode.currentData() == "visible"
+        images = self.visible_previews if only_visible else self.preview_images
+        self.preview_note.setText("قرمز: قابل‌دید • سفید: سایر نواحی • خروجی: visible.shp" if only_visible else
+                                  "سبز: قابل‌دید • قرمز: پنهان • خاکستری: نامعلوم • سفید: بیرون قطاع")
+        if fid in images:
+            self.image.setPixmap(images[fid].scaled(self.image.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

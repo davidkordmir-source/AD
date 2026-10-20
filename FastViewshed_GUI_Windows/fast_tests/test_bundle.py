@@ -43,6 +43,8 @@ print(json.dumps({"result": result}))
                 folder = Path(json.loads(process.stdout)["result"])
                 self.assertEqual(fixture.statuses(folder, 500755, 3950505), [0])
                 self.assertTrue((folder/"visibility.shx").exists())
+                self.assertTrue((folder/"visible.shp").exists())
+                self.assertEqual(fixture.statuses(folder, 500755, 3950505, "visible"), [])
         finally:
             fixture.tearDown()
 

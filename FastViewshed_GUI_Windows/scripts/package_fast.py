@@ -1,4 +1,4 @@
-"""Build full Windows source distribution and the one-file 2.1 update."""
+"""Build full Windows source distribution and the one-file 2.2 update."""
 
 import hashlib
 from pathlib import Path
@@ -7,16 +7,34 @@ from zipfile import ZipFile, ZIP_DEFLATED
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT/"dist"
 PREFIX = "FastViewshed_GUI_Windows/"
-UPDATE = """به‌روزرسانی Fast Sector Viewshed به نسخهٔ ۲٫۱
+UPDATE = """به‌روزرسانی Fast Sector Viewshed به نسخهٔ ۲٫۲
 
 ۱. برنامه را ببندید.
 ۲. فایل FastViewshed_GUI.py داخل این ZIP را در همان پوشه‌ای کپی کنید که
    Run_Fast_Viewshed.bat و پوشهٔ runtime نسخهٔ نصب‌شده قرار دارند.
 ۳. جایگزینی فایل قبلی را تأیید کنید؛ فایل را داخل پوشهٔ runtime نریزید.
 ۴. همان Run_Fast_Viewshed.bat قبلی را باز کنید.
-   عنوان پنجره باید Fast Sector Viewshed 2.1 باشد.
+   عنوان پنجره باید Fast Sector Viewshed 2.2 باشد.
 
 نصب دوبارهٔ کتابخانه‌ها لازم نیست.
+
+خروجی اصلی جدید: visible.shp، فقط پلی‌گون‌های قابل‌دید.
+بعد از محاسبه آن را روی DEM باز کنید؛ در ArcGIS Pro رنگ Fill قرمز بگذارید.
+sectors.shp فقط مرز تحلیل است. visibility.shp هر سه کلاس را دارد؛
+نمایش همهٔ کلاس‌ها با یک نماد شکل قطاع کامل را نشان می‌دهد.
+برای خروجی نسخهٔ قبلی هم می‌توانید فیلتر status = 1 بگذارید؛
+این فیلتر به محاسبهٔ دوباره نیاز ندارد.
+
+پیش‌نمایش پیش‌فرض: فقط محدودهٔ قابل‌دید قرمز. نمای همهٔ کلاس‌ها جداست.
+برای مقایسهٔ یک ناظر، همان src_id را انتخاب کنید.
+این اصلاح نمایش/خروجی است؛ معادل بودن محاسبه با Global Mapper روی
+دادهٔ شما هنوز تأیید نشده و به DEM، نقاط و تنظیمات همسان نیاز دارد.
+
+انحنای زمین/شکست جوی اکنون گزینهٔ روشن/خاموش دارد (پیش‌فرض روشن).
+تنظیم آن را با اجرای مرجع یکسان کنید، به‌خصوص در شعاع ۱۰۰ کیلومتر.
+در برنامه ارتفاع گیرنده/ناظر در محل نقطهٔ شیپ‌فایل است و ارتفاع هدف
+به سلول‌های مقصد اضافه می‌شود. نام‌های مشابه در دو برنامه را از نظر
+محل اعمال ارتفاع هم مقایسه کنید.
 
 اصلاح: شبکه‌های بزرگ به‌طور پیش‌فرض با افزایش خودکار پیکسل تا سقف
 انتخابی تحلیل می‌شوند؛ این کار جزئیات مکانی را کاهش می‌دهد و ممکن است
@@ -53,10 +71,10 @@ def main():
                 z.write(ROOT/name, PREFIX+name)
         z.write(DIST/"FastViewshed_VALIDATION.json", PREFIX+"VALIDATION.json")
         z.write(ROOT/"fast-test-results/FastViewshed_GUI.png", PREFIX+"GUI.png")
-        z.writestr(PREFIX+"README.md", "# Fast Sector Viewshed 2.1\n\nRead README_FAST_FA.md for installation, update and large-grid settings.\n\nInstall Miniforge if needed, then run Install_Fast_Viewshed.bat once and Run_Fast_Viewshed.bat to open the GUI.\n\nThis is a Python/Qt source GUI package. Windows installation is not yet verified on Windows.\n")
+        z.writestr(PREFIX+"README.md", "# Fast Sector Viewshed 2.2\n\nPrimary output: visible.shp (visible cells only). visibility.shp contains all classes; sectors.shp contains analysis bounds.\n\nRead README_FAST_FA.md for installation, update and large-grid settings.\n\nInstall Miniforge if needed, then run Install_Fast_Viewshed.bat once and Run_Fast_Viewshed.bat to open the GUI.\n\nThis is a Python/Qt source GUI package. Windows installation is not yet verified on Windows. Numerical equivalence to Global Mapper on the user DEM is not established.\n")
         z.writestr(PREFIX+"UPDATE_FA.txt", UPDATE)
     full.with_suffix(".tmp").replace(full)
-    patch = DIST/"FastViewshed_Update_v2.1.zip"
+    patch = DIST/"FastViewshed_Update_v2.2.zip"
     with ZipFile(patch, "w", ZIP_DEFLATED) as z:
         z.write(ROOT/"FastViewshed_GUI.py", "FastViewshed_GUI.py")
         z.writestr("UPDATE_FA.txt", UPDATE)

@@ -242,6 +242,12 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     np.multiply(heights, 1 if scale is None else scale, out=heights)
     np.add(heights, 0 if offset is None else offset, out=heights)
     np.multiply(heights, UNITS[cfg.dem_z_unit], out=heights)
+    low = float(np.min(heights, where=valid, initial=np.inf))
+    high = float(np.max(heights, where=valid, initial=-np.inf))
+    log(f"نقطه {fid}: ارتفاع زمین در محل ناظر {heights[n, n]:.3f} متر؛ "
+        f"بازهٔ ارتفاع DEM در پنجره {low:.3f} تا {high:.3f} متر؛ "
+        f"گیرنده {cfg.receiver*UNITS[cfg.receiver_unit]:g} و هدف "
+        f"{cfg.target*UNITS[cfg.target_unit]:g} متر بالای زمین")
     heights[~valid] = 0
     gt = warped.GetGeoTransform()
     projection = local_sr.ExportToWkt()
@@ -252,7 +258,8 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     maximum = radius+2*cell
     log(f"نقطه {fid}: محاسبهٔ دیدپذیری با موتور GDAL")
     result = viewshed(terrain, cfg, maximum, cfg.receiver*UNITS[cfg.receiver_unit],
-                      cfg.target*UNITS[cfg.target_unit], 1-cfg.refraction, callback(.25, .65))
+                      cfg.target*UNITS[cfg.target_unit],
+                      1-cfg.refraction if cfg.curvature_enabled else 0, callback(.25, .65))
     terrain = None
     classes = result.GetRasterBand(1).ReadAsArray()
     result_gt = result.GetGeoTransform()
@@ -290,8 +297,8 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     return classes, result_gt, local_sr, sector, cell
 
 
-def write_qml(path):
-    colors = {0: "221,72,77,210", 1: "42,184,111,210", 2: "140,147,155,170"}
+def write_qml(path, visible_only=False):
+    colors = {1: "190,30,45,210"} if visible_only else {0: "221,72,77,210", 1: "42,184,111,210", 2: "140,147,155,170"}
     symbols = "".join(f'<symbol name="{i}" type="fill"><layer class="SimpleFill"><Option type="Map"><Option name="color" value="{c}" type="QString"/><Option name="outline_style" value="no" type="QString"/></Option></layer></symbol>' for i, c in colors.items())
     categories = "".join(f'<category value="{i}" symbol="{i}" label="{CLASS_NAMES[i]}" render="true"/>' for i in colors)
     Path(path).with_suffix(".qml").write_text(f'<!DOCTYPE qgis><qgis version="3.40"><renderer-v2 type="categorizedSymbol" attr="status"><categories>{categories}</categories><symbols>{symbols}</symbols></renderer-v2></qgis>', encoding="utf-8")
@@ -308,19 +315,26 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     if not source.GetProjection():
         raise ValueError("سیستم مختصات DEM مشخص نیست.")
     source_sr = spatial_ref(source.GetProjection())
+    log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع ناظر در نقطه "
+        f"{cfg.receiver*UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ ارتفاع هدف روی سلول‌ها "
+        f"{cfg.target*UNITS[cfg.target_unit]:g} متر بالای DEM؛ "
+        f"انحنای زمین {'روشن' if cfg.curvature_enabled else 'خاموش'}؛ "
+        f"ضریب شکست {cfg.refraction:g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}")
     output = Path(cfg.output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     folder = output/("fast_viewshed_"+datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     folder.mkdir()
     fields = [("src_id", ogr.OFTInteger64), ("az_start", ogr.OFTReal), ("az_end", ogr.OFTReal),
               ("radius_m", ogr.OFTReal), ("recv_m", ogr.OFTReal), ("target_m", ogr.OFTReal), ("cell_m", ogr.OFTReal)]
-    visibility_ds = sector_ds = None
+    visibility_ds = visible_ds = sector_ds = None
     union_groups = {0: ogr.Geometry(ogr.wkbMultiPolygon), 1: ogr.Geometry(ogr.wkbMultiPolygon)}
     sector_union = ogr.Geometry(ogr.wkbMultiPolygon)
     summaries = []
     try:
         visibility_ds, visibility_layer = new_shape(folder/"visibility.shp", output_sr,
                                                    fields+[("status", ogr.OFTInteger), ("state", ogr.OFTString)])
+        visible_ds, visible_layer = new_shape(folder/"visible.shp", output_sr,
+                                              fields+[("status", ogr.OFTInteger), ("state", ogr.OFTString)])
         sector_ds, sector_layer = new_shape(folder/"sectors.shp", output_sr, fields)
         for index, row in enumerate(rows):
             if cancelled():
@@ -353,26 +367,38 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
                 return 0 if cancelled() else 1
             gdal.Polygonize(raster.GetRasterBand(1), raster.GetRasterBand(1).GetMaskBand(), layer, 0,
                             callback=polygon_progress)
+            areas = {str(i): 0.0 for i in (0, 1, 2)}
             for feature in layer:
                 status = feature.GetField("status")
                 geometry = feature.GetGeometryRef().Intersection(sector)
+                areas[str(status)] += geometry.GetArea()
                 geometry.Transform(transform)
                 write_feature(visibility_layer, geometry, {**values, "status": status, "state": CLASS_NAMES[status]})
+                if status == 1:
+                    write_feature(visible_layer, geometry, {**values, "status": 1, "state": "visible"})
                 if cfg.merge_coverage and status in (0, 1):
                     for piece in polygon_parts(geometry):
                         union_groups[status].AddGeometry(piece)
             preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat))
             counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
+            total = sum(counts.values())
+            log(f"نقطه {fid}: قابل‌دید {counts['1']/total:.1%} | "
+                f"پنهان {counts['0']/total:.1%} | نامعلوم {counts['2']/total:.1%}؛ "
+                "خروجی قابل‌دید: visible.shp")
+            if not counts["1"]:
+                log(f"نقطه {fid}: هیچ سلول قابل‌دیدی پیدا نشد؛ برای بررسی ارتفاع‌ها، واحد DEM و تفکیک، run.json و گزارش را نگه دارید.")
             summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts,
+                                  areas_m2=areas,
                                   seconds=time.perf_counter()-local_start))
             visibility_layer.SyncToDisk()
+            visible_layer.SyncToDisk()
             sector_layer.SyncToDisk()
             # Do not retain the previous observer's raster while constructing
             # the next grid. Qt receives its own preview array.
             layer = polygons = raster = None
             del classes
-        visibility_layer = sector_layer = None
-        visibility_ds = sector_ds = None
+        visibility_layer = visible_layer = sector_layer = None
+        visibility_ds = visible_ds = sector_ds = None
         if cfg.merge_coverage:
             log("ادغام پوشش‌ها؛ قابل رؤیت بودن از یک نقطه اولویت دارد…")
             visible = union_groups[1].UnionCascaded() if union_groups[1].GetGeometryCount() else ogr.Geometry(ogr.wkbMultiPolygon)
@@ -389,20 +415,38 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             coverage_layer = coverage_ds = None
             write_qml(folder/"coverage.shp")
         write_qml(folder/"visibility.shp")
-        report = dict(status="completed", application_version="2.1.0",
+        write_qml(folder/"visible.shp", visible_only=True)
+        (folder/"README_RESULTS_FA.txt").write_text(
+            "برای نمایش محدودهٔ قابل‌دید روی DEM، فایل visible.shp را باز کنید.\n"
+            "این لایه فقط پلی‌گون‌های status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\n"
+            "در ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\n"
+            "sectors.shp فقط مرز شعاع و آزیموت تحلیل است.\n"
+            "visibility.shp هر سه کلاس را دارد: 1=قابل‌دید، 0=پنهان، 2=نامعلوم.\n"
+            "نمایش همهٔ این کلاس‌ها با یک نماد، شکل قطاع کامل را نشان می‌دهد.\n"
+            "در صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\n"
+            "برای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع گیرنده و هدف بالای زمین، واحدها، شعاع، "
+            "آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\n"
+            "run.json تنظیمات و شمارش و مساحت کلاس‌ها را برای بررسی ذخیره می‌کند.\n"
+            "مطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n",
+            encoding="utf-8")
+        report = dict(status="completed", application_version="2.2.0",
                       engine=gdal.VersionInfo("--version"), method="GDAL GVM_Edge / Wang",
                       settings=asdict(cfg), observers=summaries, seconds=time.perf_counter()-started,
                       output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES,
+                      primary_output="visible.shp",
+                      outputs={"visible.shp": "visible cells only (status=1), per observer",
+                               "visibility.shp": "all classes; requires class symbology or filtering",
+                               "sectors.shp": "analysis bounds, not visibility"},
                       notes=["Per-observer AEQD grids preserve radial distances and true bearings.",
                              "NoData paths are conservatively marked unknown using an opaque-gap pass.",
                              "Results are grid approximations; equivalence to Esri/Global Mapper is not established."])
         (folder/"run.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         progress(1)
-        log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}")
+        log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nبرای نمایش محدودهٔ قابل‌دید روی DEM، visible.shp را باز کنید.")
         return str(folder)
     except Exception as exc:
-        visibility_layer = sector_layer = None
-        visibility_ds = sector_ds = None
+        visibility_layer = visible_layer = sector_layer = None
+        visibility_ds = visible_ds = sector_ds = None
         (folder/"FAILED.txt").write_text(str(exc) or "Cancelled; outputs may be partial.", encoding="utf-8")
         if cancelled():
             raise Cancelled() from exc

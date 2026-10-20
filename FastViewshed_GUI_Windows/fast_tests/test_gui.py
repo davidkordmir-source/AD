@@ -70,6 +70,11 @@ class GuiTests(unittest.TestCase):
         window.inputs["cell_size"].setValue(10)
         self.assertTrue(window.settings().auto_coarsen)
         self.assertEqual(window.settings().max_grid_mcells, 25)
+        self.assertTrue(window.settings().curvature_enabled)
+        window.curvature.setChecked(False)
+        self.assertFalse(window.settings().curvature_enabled)
+        self.assertFalse(window.inputs["refraction"].isEnabled())
+        window.curvature.setChecked(True)
         window.auto_coarsen.setChecked(False)
         window.inputs["max_grid_mcells"].setValue(40)
         self.assertFalse(window.settings().auto_coarsen)
@@ -79,6 +84,9 @@ class GuiTests(unittest.TestCase):
         self.assertIsNone(window.thread, msg=window.log.toPlainText())
         self.assertIsNotNone(window.result_folder, msg=window.log.toPlainText())
         self.assertTrue((Path(window.result_folder)/"visibility.shp").exists())
+        self.assertTrue((Path(window.result_folder)/"visible.shp").exists())
+        self.assertEqual(window.preview_mode.currentData(), "visible")
+        self.assertIn("visible.shp", window.preview_note.text())
         self.assertEqual(window.preview_selector.count(), 1)
         self.assertFalse(window.image.pixmap().isNull())
         self.assertEqual(window.progress_bar.value(), 100)
@@ -118,7 +126,22 @@ class GuiTests(unittest.TestCase):
         self.assertLessEqual(max(shape[:2]), 1400)
         self.assertEqual(shape[2], 4)
         self.assertFalse(self.window.preview_images[0].isNull())
+        self.assertFalse(self.window.visible_previews[0].isNull())
         self.assertEqual(self.window.preview_selector.count(), 1)
+
+    def test_visible_preview_is_red_and_hidden_unknown_and_outside_are_transparent(self):
+        self.window.receive_preview(0, np.array([[0, 1], [2, 255]], dtype=np.uint8), {"cell": 10})
+        visible = self.window.visible_previews[0].toImage()
+        for x, y in ((0, 0), (0, 1), (1, 1)):
+            self.assertEqual(visible.pixelColor(x, y).alpha(), 0)
+        color = visible.pixelColor(1, 0)
+        self.assertGreater(color.alpha(), 0)
+        self.assertGreater(color.red(), color.green())
+        self.window.preview_mode.setCurrentIndex(1)
+        self.assertIn("نامعلوم", self.window.preview_note.text())
+        classes = self.window.preview_images[0].toImage()
+        self.assertEqual(classes.pixelColor(0, 0).alpha(), 255)
+        self.assertGreater(classes.pixelColor(1, 0).green(), classes.pixelColor(1, 0).red())
 
 
 if __name__ == "__main__":

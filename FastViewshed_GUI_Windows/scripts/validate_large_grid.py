@@ -21,7 +21,10 @@ def main():
     folder.mkdir(parents=True, exist_ok=True)
     sr = app["spatial_ref"]("+proj=aeqd +lat_0=35 +lon_0=51 +datum=WGS84 +units=m +no_defs")
     dem = folder/"flat.tif"
-    size, cell, radius = 5725, 10, 28590
+    # The user reports a 100 km radius, 2 m receiver, 100 m target and a
+    # 5725-square source grid. Use the matching synthetic configuration.
+    size, radius = 5725, 100000
+    cell = radius/2859
     ds = gdal.GetDriverByName("GTiff").Create(str(dem), size, size, 1, gdal.GDT_Float32,
                                                options=["TILED=YES", "COMPRESS=LZW"])
     edge = size*cell/2
@@ -49,6 +52,7 @@ def main():
     for limit, automatic in ((25, True), (40, False)):
         config = app["FastSettings"](str(points), str(dem), "az_start", "az_end", str(folder/"results"),
                                       radius=radius, radius_unit="m", cell_size=cell,
+                                      receiver=2, target=100,
                                       max_grid_mcells=limit, auto_coarsen=automatic)
         started = time.perf_counter()
         output = Path(app["run_fast"](config, log=lambda text: print(text, flush=True)))
@@ -56,7 +60,7 @@ def main():
         assert report["status"] == "completed"
         observer = report["observers"][0]
         if automatic:
-            assert cell < observer["cell_m"] < 12
+            assert cell < observer["cell_m"] < cell*1.15
         else:
             assert observer["cell_m"] == cell
         ds = ogr.Open(str(output/"sectors.shp"))
@@ -68,8 +72,13 @@ def main():
         ds = ogr.Open(str(output/"visibility.shp"))
         assert ds.GetLayer(0).GetFeatureCount() > 0
         ds = None
+        ds = ogr.Open(str(output/"visible.shp"))
+        assert ds.GetLayer(0).GetFeatureCount() > 0
+        assert all(f.GetField("status") == 1 for f in ds.GetLayer(0))
+        ds = None
         results.append(dict(max_grid_mcells=limit, auto_coarsen=automatic,
-                            actual_pixel_m=observer["cell_m"], radius_m=radius,
+                            actual_pixel_m=observer["cell_m"], radius_m=radius, receiver_m=2, target_m=100,
+                            counts=observer["counts"],
                             seconds=time.perf_counter()-started, status="completed"))
     (folder/"validation.json").write_text(json.dumps(dict(synthetic=True, requested_grid=[size, size],
         user_data_tested=False, cases=results), indent=2), encoding="utf-8")

@@ -141,6 +141,7 @@ try:
         merge_coverage: bool = False
         max_grid_mcells: int = 25
         auto_coarsen: bool = True
+        curvature_enabled: bool = True
 
         @property
         def radius_m(self):
@@ -169,6 +170,8 @@ try:
                 raise ValueError('سقف شبکه باید عدد صحیح از ۱ تا ۱۰۰ میلیون سلول باشد.')
             if not isinstance(self.auto_coarsen, bool):
                 raise ValueError('تنظیم خودکار پیکسل باید روشن یا خاموش باشد.')
+            if not isinstance(self.curvature_enabled, bool):
+                raise ValueError('تنظیم انحنای زمین باید روشن یا خاموش باشد.')
     'Compiled GDAL viewshed on local equidistant grids, exported as Shapefiles.'
     from dataclasses import asdict
     from datetime import datetime
@@ -371,6 +374,9 @@ try:
         np.multiply(heights, 1 if scale is None else scale, out=heights)
         np.add(heights, 0 if offset is None else offset, out=heights)
         np.multiply(heights, UNITS[cfg.dem_z_unit], out=heights)
+        low = float(np.min(heights, where=valid, initial=np.inf))
+        high = float(np.max(heights, where=valid, initial=-np.inf))
+        log(f'نقطه {fid}: ارتفاع زمین در محل ناظر {heights[n, n]:.3f} متر؛ بازهٔ ارتفاع DEM در پنجره {low:.3f} تا {high:.3f} متر؛ گیرنده {cfg.receiver * UNITS[cfg.receiver_unit]:g} و هدف {cfg.target * UNITS[cfg.target_unit]:g} متر بالای زمین')
         heights[~valid] = 0
         gt = warped.GetGeoTransform()
         projection = local_sr.ExportToWkt()
@@ -379,7 +385,7 @@ try:
         del heights
         maximum = radius + 2 * cell
         log(f'نقطه {fid}: محاسبهٔ دیدپذیری با موتور GDAL')
-        result = viewshed(terrain, cfg, maximum, cfg.receiver * UNITS[cfg.receiver_unit], cfg.target * UNITS[cfg.target_unit], 1 - cfg.refraction, callback(0.25, 0.65))
+        result = viewshed(terrain, cfg, maximum, cfg.receiver * UNITS[cfg.receiver_unit], cfg.target * UNITS[cfg.target_unit], 1 - cfg.refraction if cfg.curvature_enabled else 0, callback(0.25, 0.65))
         terrain = None
         classes = result.GetRasterBand(1).ReadAsArray()
         result_gt = result.GetGeoTransform()
@@ -414,8 +420,8 @@ try:
             raise Cancelled()
         return (classes, result_gt, local_sr, sector, cell)
 
-    def write_qml(path):
-        colors = {0: '221,72,77,210', 1: '42,184,111,210', 2: '140,147,155,170'}
+    def write_qml(path, visible_only=False):
+        colors = {1: '190,30,45,210'} if visible_only else {0: '221,72,77,210', 1: '42,184,111,210', 2: '140,147,155,170'}
         symbols = ''.join((f'<symbol name="{i}" type="fill"><layer class="SimpleFill"><Option type="Map"><Option name="color" value="{c}" type="QString"/><Option name="outline_style" value="no" type="QString"/></Option></layer></symbol>' for i, c in colors.items()))
         categories = ''.join((f'<category value="{i}" symbol="{i}" label="{CLASS_NAMES[i]}" render="true"/>' for i in colors))
         Path(path).with_suffix('.qml').write_text(f'<!DOCTYPE qgis><qgis version="3.40"><renderer-v2 type="categorizedSymbol" attr="status"><categories>{categories}</categories><symbols>{symbols}</symbols></renderer-v2></qgis>', encoding='utf-8')
@@ -431,17 +437,19 @@ try:
         if not source.GetProjection():
             raise ValueError('سیستم مختصات DEM مشخص نیست.')
         source_sr = spatial_ref(source.GetProjection())
+        log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع ناظر در نقطه {cfg.receiver * UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ ارتفاع هدف روی سلول\u200cها {cfg.target * UNITS[cfg.target_unit]:g} متر بالای DEM؛ انحنای زمین {('روشن' if cfg.curvature_enabled else 'خاموش')}؛ ضریب شکست {cfg.refraction:g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}")
         output = Path(cfg.output_dir).expanduser().resolve()
         output.mkdir(parents=True, exist_ok=True)
         folder = output / ('fast_viewshed_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
         folder.mkdir()
         fields = [('src_id', ogr.OFTInteger64), ('az_start', ogr.OFTReal), ('az_end', ogr.OFTReal), ('radius_m', ogr.OFTReal), ('recv_m', ogr.OFTReal), ('target_m', ogr.OFTReal), ('cell_m', ogr.OFTReal)]
-        visibility_ds = sector_ds = None
+        visibility_ds = visible_ds = sector_ds = None
         union_groups = {0: ogr.Geometry(ogr.wkbMultiPolygon), 1: ogr.Geometry(ogr.wkbMultiPolygon)}
         sector_union = ogr.Geometry(ogr.wkbMultiPolygon)
         summaries = []
         try:
             visibility_ds, visibility_layer = new_shape(folder / 'visibility.shp', output_sr, fields + [('status', ogr.OFTInteger), ('state', ogr.OFTString)])
+            visible_ds, visible_layer = new_shape(folder / 'visible.shp', output_sr, fields + [('status', ogr.OFTInteger), ('state', ogr.OFTString)])
             sector_ds, sector_layer = new_shape(folder / 'sectors.shp', output_sr, fields)
             for index, row in enumerate(rows):
                 if cancelled():
@@ -471,23 +479,32 @@ try:
                     progress((index + 0.85 + 0.15 * fraction) / len(rows) * 0.95)
                     return 0 if cancelled() else 1
                 gdal.Polygonize(raster.GetRasterBand(1), raster.GetRasterBand(1).GetMaskBand(), layer, 0, callback=polygon_progress)
+                areas = {str(i): 0.0 for i in (0, 1, 2)}
                 for feature in layer:
                     status = feature.GetField('status')
                     geometry = feature.GetGeometryRef().Intersection(sector)
+                    areas[str(status)] += geometry.GetArea()
                     geometry.Transform(transform)
                     write_feature(visibility_layer, geometry, {**values, 'status': status, 'state': CLASS_NAMES[status]})
+                    if status == 1:
+                        write_feature(visible_layer, geometry, {**values, 'status': 1, 'state': 'visible'})
                     if cfg.merge_coverage and status in (0, 1):
                         for piece in polygon_parts(geometry):
                             union_groups[status].AddGeometry(piece)
                 preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat))
                 counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
-                summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts, seconds=time.perf_counter() - local_start))
+                total = sum(counts.values())
+                log(f"نقطه {fid}: قابل\u200cدید {counts['1'] / total:.1%} | پنهان {counts['0'] / total:.1%} | نامعلوم {counts['2'] / total:.1%}؛ خروجی قابل\u200cدید: visible.shp")
+                if not counts['1']:
+                    log(f'نقطه {fid}: هیچ سلول قابل\u200cدیدی پیدا نشد؛ برای بررسی ارتفاع\u200cها، واحد DEM و تفکیک، run.json و گزارش را نگه دارید.')
+                summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts, areas_m2=areas, seconds=time.perf_counter() - local_start))
                 visibility_layer.SyncToDisk()
+                visible_layer.SyncToDisk()
                 sector_layer.SyncToDisk()
                 layer = polygons = raster = None
                 del classes
-            visibility_layer = sector_layer = None
-            visibility_ds = sector_ds = None
+            visibility_layer = visible_layer = sector_layer = None
+            visibility_ds = visible_ds = sector_ds = None
             if cfg.merge_coverage:
                 log('ادغام پوشش\u200cها؛ قابل رؤیت بودن از یک نقطه اولویت دارد…')
                 visible = union_groups[1].UnionCascaded() if union_groups[1].GetGeometryCount() else ogr.Geometry(ogr.wkbMultiPolygon)
@@ -503,14 +520,16 @@ try:
                 coverage_layer = coverage_ds = None
                 write_qml(folder / 'coverage.shp')
             write_qml(folder / 'visibility.shp')
-            report = dict(status='completed', application_version='2.1.0', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData paths are conservatively marked unknown using an opaque-gap pass.', 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            write_qml(folder / 'visible.shp', visible_only=True)
+            (folder / 'README_RESULTS_FA.txt').write_text('برای نمایش محدودهٔ قابل\u200cدید روی DEM، فایل visible.shp را باز کنید.\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nدر ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\nsectors.shp فقط مرز شعاع و آزیموت تحلیل است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم.\nنمایش همهٔ این کلاس\u200cها با یک نماد، شکل قطاع کامل را نشان می\u200cدهد.\nدر صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\nبرای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع گیرنده و هدف بالای زمین، واحدها، شعاع، آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\nrun.json تنظیمات و شمارش و مساحت کلاس\u200cها را برای بررسی ذخیره می\u200cکند.\nمطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n', encoding='utf-8')
+            report = dict(status='completed', application_version='2.2.0', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output='visible.shp', outputs={'visible.shp': 'visible cells only (status=1), per observer', 'visibility.shp': 'all classes; requires class symbology or filtering', 'sectors.shp': 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData paths are conservatively marked unknown using an opaque-gap pass.', 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
-            log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}")
+            log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nبرای نمایش محدودهٔ قابل\u200cدید روی DEM، visible.shp را باز کنید.")
             return str(folder)
         except Exception as exc:
-            visibility_layer = sector_layer = None
-            visibility_ds = sector_ds = None
+            visibility_layer = visible_layer = sector_layer = None
+            visibility_ds = visible_ds = sector_ds = None
             (folder / 'FAILED.txt').write_text(str(exc) or 'Cancelled; outputs may be partial.', encoding='utf-8')
             if cancelled():
                 raise Cancelled() from exc
@@ -567,7 +586,7 @@ try:
 
         def __init__(self):
             super().__init__()
-            self.setWindowTitle('Fast Sector Viewshed 2.1 | دیدپذیری قطاعی مستقل')
+            self.setWindowTitle('Fast Sector Viewshed 2.2 | دیدپذیری قطاعی مستقل')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -577,6 +596,7 @@ try:
             self.loaded_shape = None
             self.result_folder = None
             self.preview_images = {}
+            self.visible_previews = {}
             self.inputs = {}
             self.unit_boxes = {}
             self.build_ui()
@@ -653,12 +673,19 @@ try:
             memory_note = QtWidgets.QLabel('برای حفظ پیکسل درخواستی، تنظیم خودکار را خاموش و سقف را افزایش دهید. شبکهٔ بزرگ حافظه و زمان بیشتری مصرف می\u200cکند؛ این عدد سقف مصرف RAM نیست.')
             memory_note.setWordWrap(True)
             grid.addWidget(memory_note, 7, 0, 1, 3)
+            self.curvature = QtWidgets.QCheckBox('محاسبهٔ انحنای زمین و شکست جوی')
+            self.curvature.setChecked(True)
+            self.curvature.toggled.connect(self.inputs['refraction'].setEnabled)
+            grid.addWidget(self.curvature, 8, 0, 1, 3)
+            curvature_note = QtWidgets.QLabel('برای مقایسه با Global Mapper، وضعیت انحنای زمین و ضریب شکست هر دو اجرا را یکسان کنید؛ اثر آن در شعاع ۱۰۰ کیلومتر زیاد است.')
+            curvature_note.setWordWrap(True)
+            grid.addWidget(curvature_note, 9, 0, 1, 3)
             output, grid = self.group('خروجی', form)
             self.path_row(grid, 0, 'output_dir', 'پوشهٔ ذخیره', self.choose_output)
             self.inputs['output_dir'].setText(str(Path.home() / 'Documents' / 'FastViewshedResults'))
             self.merge = QtWidgets.QCheckBox('تولید coverage.shp با ادغام پوشش نقاط (زمان بیشتر)')
             grid.addWidget(self.merge, 1, 0, 1, 3)
-            description = QtWidgets.QLabel('visibility.shp: دیدپذیری هر نقطه با شناسهٔ منبع\nsectors.shp: مرز قطاع\u200cها\nسبز: قابل رؤیت • قرمز: پنهان • خاکستری: نامعلوم / فقدان DEM')
+            description = QtWidgets.QLabel('خروجی اصلی: visible.shp، فقط محدودهٔ قابل\u200cدید\nvisibility.shp: هر سه کلاس دیدپذیری\nsectors.shp: فقط مرز تحلیل؛ برای نمایش ویوشد visible.shp را باز کنید.')
             description.setWordWrap(True)
             grid.addWidget(description, 2, 0, 1, 3)
             form.addStretch()
@@ -669,12 +696,19 @@ try:
             self.preview_selector = QtWidgets.QComboBox()
             self.preview_selector.currentIndexChanged.connect(self.show_preview)
             preview_layout.addWidget(self.preview_selector)
+            self.preview_mode = QtWidgets.QComboBox()
+            self.preview_mode.addItem('فقط محدودهٔ قابل\u200cدید — قرمز', 'visible')
+            self.preview_mode.addItem('همهٔ کلاس\u200cها — قابل\u200cدید، پنهان، نامعلوم', 'classes')
+            self.preview_mode.currentIndexChanged.connect(self.show_preview)
+            preview_layout.addWidget(self.preview_mode)
             self.image = QtWidgets.QLabel('پیش\u200cنمایش هر نقطه پس از محاسبه نمایش داده می\u200cشود.')
             self.image.setAlignment(QtCore.Qt.AlignCenter)
             self.image.setMinimumSize(300, 300)
             self.image.setStyleSheet('background:#f3f6f8; border:1px solid #cad4df; border-radius:8px;')
             preview_layout.addWidget(self.image, 1)
-            preview_layout.addWidget(QtWidgets.QLabel('پیش\u200cنمایش نسبت به شمال واقعی • سفید: بیرون قطاع'))
+            self.preview_note = QtWidgets.QLabel('قرمز: قابل\u200cدید • سفید: سایر نواحی • خروجی: visible.shp')
+            self.preview_note.setWordWrap(True)
+            preview_layout.addWidget(self.preview_note)
             tabs.addTab(preview_tab, 'پیش\u200cنمایش دیدپذیری')
             self.log = QtWidgets.QPlainTextEdit()
             self.log.setReadOnly(True)
@@ -798,6 +832,7 @@ try:
             data['resolution_factor'] = self.resolution.currentData()
             data['merge_coverage'] = self.merge.isChecked()
             data['auto_coarsen'] = self.auto_coarsen.isChecked()
+            data['curvature_enabled'] = self.curvature.isChecked()
             config = FastSettings(**data)
             config.validate()
             return config
@@ -814,6 +849,7 @@ try:
             self.open_button.setEnabled(False)
             self.preview_selector.clear()
             self.preview_images.clear()
+            self.visible_previews.clear()
             self.image.clear()
             self.progress_bar.setValue(0)
             self.run_button.setEnabled(False)
@@ -821,7 +857,7 @@ try:
             self.read_fields.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.cancel_event.clear()
-            self.log.appendPlainText('\n── تحلیل جدید با GDAL | نسخهٔ 2.1 ──')
+            self.log.appendPlainText('\n── تحلیل جدید با GDAL | نسخهٔ 2.2 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)
@@ -876,14 +912,21 @@ try:
             if pixmap.width() > 1400 or pixmap.height() > 1400:
                 pixmap = pixmap.scaled(1400, 1400, QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation)
             self.preview_images[fid] = pixmap
+            visible_rgba = np.zeros((*classes.shape, 4), dtype=np.uint8)
+            visible_rgba[classes == 1] = (190, 30, 45, 235)
+            visible_image = QtGui.QImage(visible_rgba.data, visible_rgba.shape[1], visible_rgba.shape[0], visible_rgba.strides[0], QtGui.QImage.Format_RGBA8888).copy()
+            self.visible_previews[fid] = QtGui.QPixmap.fromImage(visible_image)
             self.preview_selector.addItem(f"نقطه {fid} | اندازهٔ پیکسل {metadata['cell']:.2f} متر", fid)
             self.preview_selector.setCurrentIndex(self.preview_selector.count() - 1)
             self.show_preview()
 
         def show_preview(self, index=None):
             fid = self.preview_selector.currentData()
-            if fid in self.preview_images:
-                self.image.setPixmap(self.preview_images[fid].scaled(self.image.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation))
+            only_visible = self.preview_mode.currentData() == 'visible'
+            images = self.visible_previews if only_visible else self.preview_images
+            self.preview_note.setText('قرمز: قابل\u200cدید • سفید: سایر نواحی • خروجی: visible.shp' if only_visible else 'سبز: قابل\u200cدید • قرمز: پنهان • خاکستری: نامعلوم • سفید: بیرون قطاع')
+            if fid in images:
+                self.image.setPixmap(images[fid].scaled(self.image.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation))
 
         def resizeEvent(self, event):
             super().resizeEvent(event)

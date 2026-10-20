@@ -11,6 +11,15 @@ class Cancelled(Exception):
 
 
 @dataclass(frozen=True)
+class ObserverRecord:
+    row: tuple
+    name: str
+    observer: float
+    receiver: float
+    name_fallback: bool = False
+
+
+@dataclass(frozen=True)
 class FastSettings:
     points: str
     dem: str
@@ -34,6 +43,10 @@ class FastSettings:
     curvature_enabled: bool = True
     nodata_policy: str = "unknown"
     observer_fid: int = -1
+    observer_field: str = ""
+    receiver_field: str = ""
+    name_field: str = ""
+    separate_outputs: bool = False
 
     @property
     def radius_m(self):
@@ -74,3 +87,10 @@ class FastSettings:
             raise ValueError("روش برخورد با ارتفاع ناموجود نامعتبر است.")
         if isinstance(self.observer_fid, bool) or not isinstance(self.observer_fid, int) or self.observer_fid < -1:
             raise ValueError("FID باید عدد صحیح از منفی یک به بالا باشد؛ منفی یک یعنی همهٔ نقاط.")
+        for field in ("observer_field", "receiver_field", "name_field"):
+            if not isinstance(getattr(self, field), str):
+                raise ValueError("نام ستون نامعتبر است: "+field)
+        if not isinstance(self.separate_outputs, bool):
+            raise ValueError("حالت خروجی جداگانه نامعتبر است.")
+        if self.separate_outputs and self.merge_coverage:
+            raise ValueError("برای خروجی مستقل هر نقطه، گزینهٔ ادغام پوشش‌ها را خاموش کنید.")

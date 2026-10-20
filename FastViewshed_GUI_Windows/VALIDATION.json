@@ -1,5 +1,5 @@
 {
-  "application": "Fast Sector Viewshed 3.0.0",
+  "application": "Fast Sector Viewshed 3.1.0",
   "tested_runtime": {
     "python": "3.13.5",
     "gdal": "3.10.3",
@@ -8,72 +8,31 @@
     "platform": "Linux / Qt offscreen"
   },
   "suite": {
-    "tests": 40,
-    "passed": 40,
+    "tests": 54,
+    "passed": 54,
     "failed": 0,
     "skipped": 0,
-    "seconds": 2.7824125539918896
+    "seconds": 4.6305827269970905
   },
-  "height_mapping_regression": "100 m fixed transmitter / 2 m receiver cells is visible past a near-observer ridge; swapped heights are blocked. Actual SHP field values are checked.",
-  "curvature_regression": "Atmospheric Correction k=1.33333 maps to GDAL curvature coefficient 0.750001875; 100 km flat-terrain case tested.",
-  "additional_checks": [
-    "FID selection without other records",
-    "Generated GeoJSON with scientific text azimuths",
-    "Unknown and explicit sea-level NoData policies",
-    "GUI reference-profile button sets actual engine settings",
-    "Visible-only Shapefile topology",
-    "Standalone single-file backend execution"
+  "new_checks": [
+    "Real per-feature text and numeric heights change computed visibility",
+    "Both observer and receiver attribute heights",
+    "Ten selected points produce exactly ten primary Shapefiles",
+    "Combined mode retains one visible.shp",
+    "Selected source names retained in name column",
+    "Persian names and UTF-8 DBF round trip",
+    "Windows-safe duplicate filenames without overwrites",
+    "Blank name fallback to FID",
+    "Invalid heights report FID and field before creating outputs",
+    "Height unit conversion and metre-based filenames",
+    "GUI checkbox, field selectors, actual worker and split files",
+    "Standalone bundle performs named independent exports"
   ],
-  "legacy_core_tests": {
-    "tests": 12,
-    "passed": 12
-  },
+  "algorithm": "Accepted 3.0 transmitter-at-point / receiver-on-cells mapping is retained; underlying GDAL viewshed algorithm is unchanged.",
   "limitations": [
-    "User DEM and numeric Global Mapper reference are unavailable; user 36 km reach has not been reproduced.",
-    "350 m reference-profile sampling is an approximation to the screenshot angular spacing; exact sampling equivalence is not established.",
-    "Windows installer and Windows GUI launch not executed here.",
-    "No guarantee of numeric equivalence to Global Mapper."
-  ],
-  "large_grid_regression": {
-    "synthetic": true,
-    "requested_grid": [
-      5725,
-      5725
-    ],
-    "user_data_tested": false,
-    "cases": [
-      {
-        "max_grid_mcells": 25,
-        "auto_coarsen": true,
-        "actual_pixel_m": 40.06410256410257,
-        "radius_m": 100000,
-        "observer_m": 100,
-        "receiver_m": 2,
-        "counts": {
-          "0": 5077878,
-          "1": 1445800,
-          "2": 0
-        },
-        "seconds": 3.021579822001513,
-        "status": "completed"
-      },
-      {
-        "max_grid_mcells": 40,
-        "auto_coarsen": false,
-        "actual_pixel_m": 34.97726477789437,
-        "radius_m": 100000,
-        "observer_m": 100,
-        "receiver_m": 2,
-        "counts": {
-          "0": 6662270,
-          "1": 1896919,
-          "2": 0
-        },
-        "seconds": 1.6072940680023748,
-        "status": "completed"
-      }
-    ]
-  },
-  "user_input_validation": "Uploaded nine-point GeoJSON was inspected locally; both decimal-text and scientific-text angle fields select the same FID=1 row. No uploaded user geometry is distributed.",
-  "height_fix_status": "Confirmed height-role inversion relative to supplied Global Mapper dialog is corrected; numerical 36 km reproduction still requires the DEM."
+    "Windows launch/installer not executed in this Linux environment.",
+    "Split files are generated for selected FIDs; FID=-1 processes all valid input points.",
+    "The selected name must fit the Shapefile 254-byte UTF-8 field limit; long filenames are shortened without truncating valid attribute names.",
+    "No uploaded user geometry is included in this source package."
+  ]
 }

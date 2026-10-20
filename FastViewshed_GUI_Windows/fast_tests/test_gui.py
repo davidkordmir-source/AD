@@ -169,6 +169,68 @@ class GuiTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(self.window.form_scroll.horizontalScrollBar().maximum(), 0)
 
+    def test_attribute_height_modes_names_and_separate_files_run_through_gui(self):
+        from test_per_point import add_attributes
+        points, dem = self.data.inputs(extra=[(500155, "80", "100")])
+        add_attributes(points, [("۱۰۰", "۲", "North"), ("۲۵", "۳", "South")])
+        window = self.window
+        window.inputs["points"].setText(str(points))
+        window.load_fields()
+        for key, value in (("start_field", "az_start"), ("end_field", "az_end"),
+                           ("observer_field", "tx"), ("receiver_field", "rx")):
+            window.inputs[key].setCurrentText(value)
+        window.inputs["name_field"].setCurrentIndex(window.inputs["name_field"].findData("label"))
+        for kind in ("observer", "receiver"):
+            window.height_modes[kind].setChecked(True)
+            self.assertFalse(window.inputs[kind].isEnabled())
+            self.assertTrue(window.inputs[kind+"_field"].isEnabled())
+        window.merge.setChecked(True)
+        window.separate.setChecked(True)
+        self.assertFalse(window.merge.isChecked())
+        self.assertFalse(window.merge.isEnabled())
+        self.assertIn("details", window.output_description.text())
+        window.inputs["dem"].setText(str(dem))
+        window.inputs["output_dir"].setText(str(self.data.root/"gui_separate"))
+        window.inputs["radius"].setValue(700)
+        window.unit_boxes["radius_unit"].setCurrentIndex(window.unit_boxes["radius_unit"].findData("m"))
+        window.inputs["cell_size"].setValue(10)
+        cfg = window.settings()
+        self.assertEqual((cfg.observer_field, cfg.receiver_field, cfg.name_field), ("tx", "rx", "label"))
+        QtTest.QTest.mouseClick(window.run_button, QtCore.Qt.LeftButton)
+        self.wait_for_analysis()
+        self.assertIsNone(window.thread, window.log.toPlainText())
+        self.assertIsNotNone(window.result_folder, window.log.toPlainText())
+        folder = Path(window.result_folder)
+        self.assertTrue((folder/"points-North-100.shp").exists())
+        self.assertTrue((folder/"points-South-25.shp").exists())
+        self.assertEqual(len(list(folder.glob("*.shp"))), 2)
+        self.assertEqual(window.preview_selector.count(), 2)
+        self.assertIn("South", window.preview_selector.currentText())
+        self.assertIn("مستقل", window.preview_note.text())
+        self.assertFalse(window.inputs["observer"].isEnabled())
+        self.assertFalse(window.merge.isEnabled())
+        screenshots = Path(__file__).resolve().parent.parent/"fast-test-results"
+        window.form_scroll.ensureWidgetVisible(window.height_modes["observer"])
+        self.app.processEvents()
+        window.grab().save(str(screenshots/"GUI_height_fields.png"))
+        window.form_scroll.ensureWidgetVisible(window.separate)
+        self.app.processEvents()
+        window.grab().save(str(screenshots/"GUI_separate_outputs.png"))
+        window.separate.setChecked(False)
+        self.assertTrue(window.merge.isEnabled())
+        self.assertIn("visible.shp", window.output_description.text())
+
+    def test_checked_height_mode_requires_a_selected_column(self):
+        points, dem = self.data.inputs()
+        self.window.inputs["points"].setText(str(points))
+        self.window.load_fields()
+        self.window.inputs["start_field"].setCurrentText("az_start")
+        self.window.inputs["end_field"].setCurrentText("az_end")
+        self.window.inputs["dem"].setText(str(dem))
+        self.window.height_modes["receiver"].setChecked(True)
+        with self.assertRaisesRegex(ValueError, "ستون ارتفاع"):
+            self.window.settings()
+
 
 if __name__ == "__main__":
     unittest.main()

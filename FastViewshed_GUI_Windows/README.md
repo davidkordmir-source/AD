@@ -1,6 +1,6 @@
-# Fast Sector Viewshed 3.0
+# Fast Sector Viewshed 3.1
 
-Primary output: visible.shp (visible cells only). visibility.shp contains all classes; sectors.shp contains analysis bounds.
+Primary output: visible.shp in combined mode; reference-name-height.shp per point in separate mode. Heights may come from numeric or text attributes and the selected point name is stored in the name field. visibility.shp contains all classes; sectors.shp contains analysis bounds.
 
 Read README_FAST_FA.md for installation, update and large-grid settings.
 

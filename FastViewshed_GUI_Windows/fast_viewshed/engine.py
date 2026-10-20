@@ -1,16 +1,19 @@
 """Compiled GDAL viewshed on local equidistant grids, exported as Shapefiles."""
 
-from dataclasses import asdict
+from collections import Counter
+from dataclasses import asdict, replace
 from datetime import datetime
 import json
 import math
 from pathlib import Path
+import re
 import time
+import unicodedata
 
 import numpy as np
 from osgeo import gdal, ogr, osr
 
-from .model import FastSettings, Cancelled, azimuth, angle_ranges, UNITS
+from .model import FastSettings, ObserverRecord, Cancelled, azimuth, angle_ranges, number, UNITS
 
 
 gdal.UseExceptions()
@@ -44,10 +47,13 @@ def inspect_shape(path):
     return {"fields": fields, "count": layer.GetFeatureCount(), "crs": sr.GetName()}
 
 
-def load_observers(cfg):
+def load_observer_records(cfg):
     metadata = inspect_shape(cfg.points)
     if cfg.start_field not in metadata["fields"] or cfg.end_field not in metadata["fields"]:
         raise ValueError("فیلدهای آزیموت را دوباره انتخاب کنید.")
+    for field in (cfg.observer_field, cfg.receiver_field, cfg.name_field):
+        if field and field not in metadata["fields"]:
+            raise ValueError("ستون انتخاب‌شده در فایل نقاط وجود ندارد: "+field)
     ds = ogr.Open(cfg.points, 0)
     layer = ds.GetLayer(0)
     sr = layer.GetSpatialRef().Clone()
@@ -67,7 +73,24 @@ def load_observers(cfg):
                 raise ValueError("مختصات جغرافیایی نامعتبر")
             start = azimuth(feature.GetField(cfg.start_field))
             end = azimuth(feature.GetField(cfg.end_field))
-            rows.append((fid, lon, lat, start, end))
+            heights = []
+            for field, fallback, unit in ((cfg.observer_field, cfg.observer, cfg.observer_unit),
+                                           (cfg.receiver_field, cfg.receiver, cfg.receiver_unit)):
+                try:
+                    value = number(feature.GetField(field)) if field else fallback
+                    if value < 0 or not math.isfinite(value*UNITS[unit]):
+                        raise ValueError("ارتفاع باید نامنفی و متناهی باشد.")
+                except ValueError as exc:
+                    raise ValueError(f"ستون ارتفاع {field!r}: {exc}") from exc
+                heights.append(value)
+            raw_name = feature.GetField(cfg.name_field) if cfg.name_field else None
+            name = str(raw_name).strip() if raw_name is not None else ""
+            fallback = not name
+            if fallback:
+                name = f"FID_{fid}"
+            if len(name.encode("utf-8")) > 254:
+                raise ValueError("نام انتخابی بیش از ۲۵۴ بایت UTF-8 است و در ستون name شیپ‌فایل جا نمی‌شود؛ ستون کوتاه‌تری انتخاب کنید.")
+            rows.append(ObserverRecord((fid, lon, lat, start, end), name, *heights, fallback))
         except (ValueError, RuntimeError) as exc:
             errors.append(f"FID={fid}: {exc}")
     if errors:
@@ -77,6 +100,38 @@ def load_observers(cfg):
             raise ValueError(f"FID={cfg.observer_fid} در فایل نقاط پیدا نشد.")
         raise ValueError("شیپ‌فایل خالی است.")
     return rows, sr
+
+
+def load_observers(cfg):
+    """Keep the original coordinate-only API for consumers and diagnostics."""
+    records, sr = load_observer_records(cfg)
+    return [record.row for record in records], sr
+
+
+def filename_component(value, maximum_bytes):
+    text = unicodedata.normalize("NFC", str(value))
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", text)
+    text = re.sub(r"\s+", " ", text).strip(" .") or "unnamed"
+    reserved = {"CON", "PRN", "AUX", "NUL"} | {f"{prefix}{i}" for prefix in ("COM", "LPT") for i in range(1, 10)}
+    if text.split(".")[0].upper() in reserved:
+        text = "_"+text
+    return text.encode("utf-8")[:maximum_bytes].decode("utf-8", errors="ignore").rstrip(" .") or "unnamed"
+
+
+def separate_filenames(cfg, records):
+    source = filename_component(Path(cfg.points).stem, 40)
+    bases = [f"{source}-{filename_component(record.name, 90)}-{record.observer*UNITS[cfg.observer_unit]:.12g}" for record in records]
+    counts = Counter(base.casefold() for base in bases)
+    used, names = set(), []
+    for record, base in zip(records, bases):
+        stem = f"{base}-FID_{record.row[0]}" if counts[base.casefold()] > 1 else base
+        candidate, suffix = stem, 1
+        while candidate.casefold() in used:
+            candidate = f"{stem}-{suffix}"
+            suffix += 1
+        used.add(candidate.casefold())
+        names.append(candidate+".shp")
+    return names
 
 
 def sector_polygon(start, end, radius, cell):
@@ -117,7 +172,7 @@ def new_shape(path, sr, fields):
     for name, kind in fields:
         field = ogr.FieldDefn(name, kind)
         if kind == ogr.OFTString:
-            field.SetWidth(32)
+            field.SetWidth(254 if name == "name" else 32)
         if kind == ogr.OFTReal:
             field.SetWidth(24)
             field.SetPrecision(8)
@@ -328,7 +383,7 @@ def visible_radius(classes, gt):
 def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cancelled=lambda: False, preview=lambda *args: None):
     cfg.validate()
     started = time.perf_counter()
-    rows, input_sr = load_observers(cfg)
+    rows, input_sr = load_observer_records(cfg)
     output_sr = spatial_ref(f"EPSG:{cfg.output_epsg}") if cfg.output_epsg else input_sr
     source = gdal.OpenEx(cfg.dem, gdal.OF_RASTER | gdal.OF_READONLY)
     if source is None or source.RasterCount != 1:
@@ -336,9 +391,11 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     if not source.GetProjection():
         raise ValueError("سیستم مختصات DEM مشخص نیست.")
     source_sr = spatial_ref(source.GetProjection())
+    observer_source = f"ستون {cfg.observer_field!r} با واحد {cfg.observer_unit}" if cfg.observer_field else f"{cfg.observer*UNITS[cfg.observer_unit]:g} متر"
+    receiver_source = f"ستون {cfg.receiver_field!r} با واحد {cfg.receiver_unit}" if cfg.receiver_field else f"{cfg.receiver*UNITS[cfg.receiver_unit]:g} متر"
     log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع فرستنده/ناظر در نقطه "
-        f"{cfg.observer*UNITS[cfg.observer_unit]:g} متر بالای DEM؛ ارتفاع گیرنده روی سلول‌ها "
-        f"{cfg.receiver*UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ "
+        f"{observer_source} بالای DEM؛ ارتفاع گیرنده روی سلول‌ها "
+        f"{receiver_source} بالای DEM؛ "
         f"انحنای زمین {'روشن' if cfg.curvature_enabled else 'خاموش'}؛ "
         f"Atmospheric Correction={cfg.atmospheric_factor:g}؛ "
         f"ضریب انحنای GDAL={cfg.curvature_coefficient:.8g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}؛ "
@@ -347,27 +404,40 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     output.mkdir(parents=True, exist_ok=True)
     folder = output/("fast_viewshed_"+datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     folder.mkdir()
-    fields = [("src_id", ogr.OFTInteger64), ("az_start", ogr.OFTReal), ("az_end", ogr.OFTReal),
+    detail_folder = folder/"details" if cfg.separate_outputs else folder
+    detail_folder.mkdir(exist_ok=True)
+    point_filenames = separate_filenames(cfg, rows) if cfg.separate_outputs else ["visible.shp"]*len(rows)
+    primary_outputs = []
+    fields = [("src_id", ogr.OFTInteger64), ("name", ogr.OFTString), ("az_start", ogr.OFTReal), ("az_end", ogr.OFTReal),
               ("radius_m", ogr.OFTReal), ("obs_m", ogr.OFTReal), ("recv_m", ogr.OFTReal), ("cell_m", ogr.OFTReal)]
     visibility_ds = visible_ds = sector_ds = None
     union_groups = {0: ogr.Geometry(ogr.wkbMultiPolygon), 1: ogr.Geometry(ogr.wkbMultiPolygon)}
     sector_union = ogr.Geometry(ogr.wkbMultiPolygon)
     summaries = []
     try:
-        visibility_ds, visibility_layer = new_shape(folder/"visibility.shp", output_sr,
+        visibility_ds, visibility_layer = new_shape(detail_folder/"visibility.shp", output_sr,
                                                    fields+[("status", ogr.OFTInteger), ("state", ogr.OFTString)])
-        visible_ds, visible_layer = new_shape(folder/"visible.shp", output_sr,
-                                              fields+[("status", ogr.OFTInteger), ("state", ogr.OFTString)])
-        sector_ds, sector_layer = new_shape(folder/"sectors.shp", output_sr, fields)
-        for index, row in enumerate(rows):
+        if not cfg.separate_outputs:
+            visible_ds, visible_layer = new_shape(folder/"visible.shp", output_sr,
+                                                  fields+[("status", ogr.OFTInteger), ("state", ogr.OFTString)])
+            primary_outputs.append("visible.shp")
+        sector_ds, sector_layer = new_shape(detail_folder/"sectors.shp", output_sr, fields)
+        for index, record in enumerate(rows):
             if cancelled():
                 raise Cancelled()
+            row = record.row
+            point_cfg = replace(cfg, observer=record.observer, receiver=record.receiver)
             fid, lon, lat, start, end = row
-            log(f"پردازش نقطه {index+1}/{len(rows)}، شناسه {fid}")
+            log(f"پردازش نقطه {index+1}/{len(rows)}، شناسه {fid}، نام {record.name!r}")
+            if cfg.name_field and record.name_fallback:
+                log(f"FID={fid}: ستون نام خالی بود؛ {record.name} استفاده شد.")
             local_start = time.perf_counter()
             classes, gt, local_sr, sector, cell = local_result(
-                source, source_sr, row, cfg, log,
+                source, source_sr, row, point_cfg, log,
                 lambda f: progress((index+f)/len(rows)*.95), cancelled)
+            if cfg.separate_outputs:
+                visible_ds, visible_layer = new_shape(folder/point_filenames[index], output_sr,
+                                                      fields+[("status", ogr.OFTInteger), ("state", ogr.OFTString)])
             transform = osr.CoordinateTransformation(local_sr, output_sr)
             output_sector = sector.Clone()
             output_sector.Transform(transform)
@@ -375,8 +445,8 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
                 ring = output_sector.GetGeometryRef(0)
                 if any(abs(ring.GetX(i)-ring.GetX(i-1)) > 180 for i in range(1, ring.GetPointCount())):
                     raise ValueError("قطاع از مرز ۱۸۰ درجه می‌گذرد؛ یک EPSG تصویرشدهٔ مناسب برای خروجی انتخاب کنید.")
-            values = dict(src_id=fid, az_start=start, az_end=end, radius_m=cfg.radius_m,
-                          obs_m=cfg.observer*UNITS[cfg.observer_unit], recv_m=cfg.receiver*UNITS[cfg.receiver_unit], cell_m=cell)
+            values = dict(src_id=fid, name=record.name, az_start=start, az_end=end, radius_m=cfg.radius_m,
+                          obs_m=point_cfg.observer*UNITS[cfg.observer_unit], recv_m=point_cfg.receiver*UNITS[cfg.receiver_unit], cell_m=cell)
             write_feature(sector_layer, output_sector, values)
             if cfg.merge_coverage:
                 sector_union.AddGeometry(output_sector)
@@ -402,24 +472,29 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
                 if cfg.merge_coverage and status in (0, 1):
                     for piece in polygon_parts(geometry):
                         union_groups[status].AddGeometry(piece)
-            preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat))
+            preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat, name=record.name))
             counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
             total = sum(counts.values())
             farthest_visible = visible_radius(classes, gt)
             log(f"نقطه {fid}: قابل‌دید {counts['1']/total:.1%} | "
                 f"پنهان {counts['0']/total:.1%} | نامعلوم {counts['2']/total:.1%}؛ "
-                "خروجی قابل‌دید: visible.shp")
+                f"خروجی قابل‌دید: {point_filenames[index]}")
             log(f"نقطه {fid}: دورترین سلول قابل‌دید {farthest_visible/1000:.3f} کیلومتر؛ "
                 f"حد تحلیل {cfg.radius_m/1000:g} کیلومتر")
             if not counts["1"]:
                 log(f"نقطه {fid}: هیچ سلول قابل‌دیدی پیدا نشد؛ برای بررسی ارتفاع‌ها، واحد DEM و تفکیک، run.json و گزارش را نگه دارید.")
-            summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts,
+            summaries.append(dict(src_id=fid, name=record.name,
+                                  observer_at_point_m=values["obs_m"], receiver_on_cells_m=values["recv_m"],
+                                  output=point_filenames[index], cell_m=cell, grid_shape=list(classes.shape), counts=counts,
                                   areas_m2=areas,
                                   max_visible_distance_m=farthest_visible,
                                   seconds=time.perf_counter()-local_start))
             visibility_layer.SyncToDisk()
             visible_layer.SyncToDisk()
             sector_layer.SyncToDisk()
+            if cfg.separate_outputs:
+                visible_layer = visible_ds = None
+                primary_outputs.append(point_filenames[index])
             # Do not retain the previous observer's raster while constructing
             # the next grid. Qt receives its own preview array.
             layer = polygons = raster = None
@@ -434,18 +509,22 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             known = visible.Union(hidden)
             unknown = sector_union.UnionCascaded().Difference(known)
             coverage_ds, coverage_layer = new_shape(folder/"coverage.shp", output_sr,
-                                                    [("status", ogr.OFTInteger), ("state", ogr.OFTString)])
+                                                    [("name", ogr.OFTString), ("status", ogr.OFTInteger), ("state", ogr.OFTString)])
             for status, geometry in ((0, hidden), (1, visible), (2, unknown)):
                 if cancelled():
                     raise Cancelled()
-                write_feature(coverage_layer, geometry, {"status": status, "state": CLASS_NAMES[status]})
+                write_feature(coverage_layer, geometry, {"name": "coverage_"+CLASS_NAMES[status], "status": status, "state": CLASS_NAMES[status]})
             coverage_layer = coverage_ds = None
             write_qml(folder/"coverage.shp")
-        write_qml(folder/"visibility.shp")
-        write_qml(folder/"visible.shp", visible_only=True)
+        write_qml(detail_folder/"visibility.shp")
+        for filename in primary_outputs:
+            write_qml(folder/filename, visible_only=True)
         (folder/"README_RESULTS_FA.txt").write_text(
-            "برای نمایش محدودهٔ قابل‌دید روی DEM، فایل visible.shp را باز کنید.\n"
+            "فایل‌های اصلی قابل‌دید:\n"+"\n".join(primary_outputs)+"\n"
             "این لایه فقط پلی‌گون‌های status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\n"
+            "در حالت خروجی جدا، لایه‌های کمکی visibility و sectors داخل پوشهٔ details هستند.\n"
+            "ستون name نام انتخابی نقطه است؛ در صورت نبود نام، FID استفاده می‌شود.\n"
+            "در نام فایل‌های مستقل، عدد پایانی ارتفاع فرستنده/آبجکت در محل نقطه، بر حسب متر است.\n"
             "در ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\n"
             "sectors.shp فقط مرز شعاع و آزیموت تحلیل است.\n"
             "visibility.shp هر سه کلاس را دارد: 1=قابل‌دید، 0=پنهان، 2=نامعلوم.\n"
@@ -456,23 +535,25 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             "run.json تنظیمات و شمارش و مساحت کلاس‌ها را برای بررسی ذخیره می‌کند.\n"
             "مطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n",
             encoding="utf-8")
-        report = dict(status="completed", application_version="3.0.0",
+        report = dict(status="completed", application_version="3.1.0",
                       engine=gdal.VersionInfo("--version"), method="GDAL GVM_Edge / Wang",
                       settings=asdict(cfg), observers=summaries, seconds=time.perf_counter()-started,
                       output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES,
-                      primary_output="visible.shp",
-                      height_mapping={"observer_at_point_m": cfg.observer*UNITS[cfg.observer_unit],
-                                      "receiver_on_cells_m": cfg.receiver*UNITS[cfg.receiver_unit],
+                      primary_output=None if cfg.separate_outputs else "visible.shp",
+                      primary_outputs=primary_outputs, output_mode="per_observer" if cfg.separate_outputs else "combined",
+                      height_mapping={"observer_at_point_m": None if cfg.observer_field else cfg.observer*UNITS[cfg.observer_unit],
+                                      "receiver_on_cells_m": None if cfg.receiver_field else cfg.receiver*UNITS[cfg.receiver_unit],
+                                      "observer_field": cfg.observer_field, "receiver_field": cfg.receiver_field,
                                       "curvature_coefficient": cfg.curvature_coefficient},
-                      outputs={"visible.shp": "visible cells only (status=1), per observer",
-                               "visibility.shp": "all classes; requires class symbology or filtering",
-                               "sectors.shp": "analysis bounds, not visibility"},
+                      outputs={**{name: "visible cells only (status=1)" for name in primary_outputs},
+                               (detail_folder/"visibility.shp").relative_to(folder).as_posix(): "all classes; requires class symbology or filtering",
+                               (detail_folder/"sectors.shp").relative_to(folder).as_posix(): "analysis bounds, not visibility"},
                       notes=["Per-observer AEQD grids preserve radial distances and true bearings.",
                              "NoData policy: "+cfg.nodata_policy,
                              "Results are grid approximations; equivalence to Esri/Global Mapper is not established."])
         (folder/"run.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         progress(1)
-        log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nبرای نمایش محدودهٔ قابل‌دید روی DEM، visible.shp را باز کنید.")
+        log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nتعداد شیپ‌فایل اصلی قابل‌دید: {len(primary_outputs)}")
         return str(folder)
     except Exception as exc:
         visibility_layer = visible_layer = sector_layer = None

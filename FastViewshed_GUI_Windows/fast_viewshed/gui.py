@@ -60,7 +60,7 @@ class AnalysisWorker(QtCore.QObject):
 class FastWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fast Sector Viewshed 3.0 | دیدپذیری قطاعی مستقل")
+        self.setWindowTitle("Fast Sector Viewshed 3.1 | دیدپذیری قطاعی مستقل")
         self.resize(1260, 860)
         self.setMinimumSize(940, 650)
         self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -73,6 +73,8 @@ class FastWindow(QtWidgets.QMainWindow):
         self.visible_previews = {}
         self.inputs = {}
         self.unit_boxes = {}
+        self.height_modes = {}
+        self.output_hint = "visible.shp"
         self.build_ui()
 
     def build_ui(self):
@@ -131,6 +133,20 @@ class FastWindow(QtWidgets.QMainWindow):
         mapping_note = QtWidgets.QLabel("Transmitter Elevation → ارتفاع فرستنده در نقطه\nReceiver Elevation → ارتفاع گیرنده در هر سلول مقصد")
         mapping_note.setWordWrap(True)
         grid.addWidget(mapping_note, 3, 0, 1, 3)
+        for row, kind, label in ((4, "observer", "فرستنده از ستون"), (5, "receiver", "گیرنده از ستون")):
+            mode = QtWidgets.QCheckBox(label)
+            combo = QtWidgets.QComboBox()
+            combo.setLayoutDirection(QtCore.Qt.LeftToRight)
+            combo.setEnabled(False)
+            self.inputs[kind+"_field"] = combo
+            self.height_modes[kind] = mode
+            mode.toggled.connect(combo.setEnabled)
+            mode.toggled.connect(self.inputs[kind].setDisabled)
+            grid.addWidget(mode, row, 0)
+            grid.addWidget(combo, row, 1, 1, 2)
+        height_note = QtWidgets.QLabel("ستون ارتفاع می‌تواند عددی یا تکست باشد، مانند ۲، 2.5 یا 1e2. واحد ستون از کمبوباکس واحد همان ارتفاع گرفته می‌شود.")
+        height_note.setWordWrap(True)
+        grid.addWidget(height_note, 6, 0, 1, 3)
         accuracy, grid = self.group("سرعت و تفکیک مکانی", form)
         self.number_row(grid, 0, "cell_size", "اندازهٔ پیکسل، متر؛ صفر = خودکار", 0)
         self.inputs["cell_size"].setSpecialValueText("خودکار")
@@ -184,8 +200,19 @@ class FastWindow(QtWidgets.QMainWindow):
         self.merge = QtWidgets.QCheckBox("تولید coverage.shp با ادغام پوشش نقاط (زمان بیشتر)")
         grid.addWidget(self.merge, 1, 0, 1, 3)
         description = QtWidgets.QLabel("خروجی اصلی: visible.shp، فقط محدودهٔ قابل‌دید\nvisibility.shp: هر سه کلاس دیدپذیری\nsectors.shp: فقط مرز تحلیل؛ برای نمایش ویوشد visible.shp را باز کنید.")
+        self.output_description = description
         description.setWordWrap(True)
         grid.addWidget(description, 2, 0, 1, 3)
+        self.inputs["name_field"] = QtWidgets.QComboBox()
+        self.inputs["name_field"].addItem("نام پیش‌فرض از FID", "")
+        grid.addWidget(QtWidgets.QLabel("ستون نام نقطه برای name"), 3, 0)
+        grid.addWidget(self.inputs["name_field"], 3, 1, 1, 2)
+        self.separate = QtWidgets.QCheckBox("برای هر نقطه یک شیپ‌فایل قابل‌دید مستقل")
+        self.separate.toggled.connect(self.toggle_separate_outputs)
+        grid.addWidget(self.separate, 4, 0, 1, 3)
+        naming_note = QtWidgets.QLabel("بدون تیک: همهٔ نقاط در visible.shp\nبا تیک: نام فایل مرجع-نام نقطه-ارتفاع فرستنده.shp\nارتفاعِ نام فایل بر حسب متر است؛ نام تکراری با FID متمایز می‌شود. لایه‌های کمکی در details ذخیره می‌شوند.")
+        naming_note.setWordWrap(True)
+        grid.addWidget(naming_note, 5, 0, 1, 3)
         form.addStretch()
         # Long Persian labels must wrap instead of forcing the entire form
         # wider than its viewport and clipping field names and browse buttons.
@@ -326,13 +353,18 @@ class FastWindow(QtWidgets.QMainWindow):
     def load_fields(self):
         path = self.inputs["points"].text().strip()
         self.loaded_shape = None
-        for key in ("start_field", "end_field"):
+        for key in ("start_field", "end_field", "observer_field", "receiver_field", "name_field"):
             self.inputs[key].clear()
+        self.inputs["name_field"].addItem("نام پیش‌فرض از FID", "")
         try:
             metadata = inspect_shape(path)
-            for key in ("start_field", "end_field"):
+            for key in ("start_field", "end_field", "observer_field", "receiver_field"):
                 self.inputs[key].addItems(metadata["fields"])
                 self.inputs[key].setCurrentIndex(-1)
+            for field in metadata["fields"]:
+                self.inputs["name_field"].addItem(field, field)
+            default_name = next((name for name in metadata["fields"] if name.casefold() in ("name", "نام")), "")
+            self.inputs["name_field"].setCurrentIndex(self.inputs["name_field"].findData(default_name))
             self.loaded_shape = path
             self.shape_info.setText(f"{metadata['count']} نقطه | {metadata['crs']}")
             self.log.appendPlainText("ستون‌ها خوانده شدند: "+", ".join(metadata["fields"]))
@@ -355,12 +387,21 @@ class FastWindow(QtWidgets.QMainWindow):
         data["merge_coverage"] = self.merge.isChecked()
         data["auto_coarsen"] = self.auto_coarsen.isChecked()
         data["curvature_enabled"] = self.curvature.isChecked()
+        data["separate_outputs"] = self.separate.isChecked()
+        data["name_field"] = self.inputs["name_field"].currentData() or ""
+        for kind, mode in self.height_modes.items():
+            field = self.inputs[kind+"_field"].currentText() if mode.isChecked() else ""
+            if mode.isChecked() and not field:
+                raise ValueError("ستون ارتفاع را انتخاب کنید: "+mode.text())
+            data[kind+"_field"] = field
         config = FastSettings(**data)
         config.validate()
         return config
 
     def apply_reference_settings(self):
         """The supplied GM dialog's public parameters, without embedding data."""
+        for mode in self.height_modes.values():
+            mode.setChecked(False)
         for name, value in (("radius", 100), ("observer", 100), ("receiver", 2),
                             ("atmospheric_factor", 1.33333), ("cell_size", 350), ("observer_fid", 1)):
             self.inputs[name].setValue(value)
@@ -376,6 +417,15 @@ class FastWindow(QtWidgets.QMainWindow):
         self.inputs["nodata_policy"].setCurrentIndex(self.inputs["nodata_policy"].findData("sea_level"))
         self.log.appendPlainText("تنظیم مرجع: FID=1؛ فرستنده در نقطه 100m، گیرنده روی سلول‌ها 2m، شعاع 100km، k=1.33333، ارتفاع ناموجود=دریا. فاصلهٔ نمونه‌برداری 350m تقریب فاصلهٔ زاویه‌ای تصویر است؛ تطابق دقیق شبکه با Global Mapper تأیید نشده است.")
 
+    def toggle_separate_outputs(self, checked):
+        if checked:
+            self.merge.setChecked(False)
+        self.merge.setEnabled(not checked)
+        self.output_description.setText(
+            "خروجی اصلی: یک فایل نام‌گذاری‌شده برای هر نقطه\nلایه‌های کمکی visibility.shp و sectors.shp داخل details قرار می‌گیرند."
+            if checked else
+            "خروجی اصلی: visible.shp، همهٔ نقاط در یک لایهٔ قابل‌دید\nvisibility.shp: همهٔ کلاس‌ها • sectors.shp: فقط مرز تحلیل")
+
     def start_analysis(self):
         if self.thread is not None:
             return
@@ -385,6 +435,7 @@ class FastWindow(QtWidgets.QMainWindow):
             self.show_error(str(exc))
             return
         self.result_folder = None
+        self.output_hint = "فایل مستقل هر نقطه" if config.separate_outputs else "visible.shp"
         self.open_button.setEnabled(False)
         self.preview_selector.clear()
         self.preview_images.clear()
@@ -396,7 +447,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.read_fields.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.cancel_event.clear()
-        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 3.0 ──")
+        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 3.1 ──")
         self.status.setText("در حال پردازش…")
         self.thread = QtCore.QThread(self)
         self.worker = AnalysisWorker(config, self.cancel_event)
@@ -462,7 +513,8 @@ class FastWindow(QtWidgets.QMainWindow):
         visible_image = QtGui.QImage(visible_rgba.data, visible_rgba.shape[1], visible_rgba.shape[0],
                                      visible_rgba.strides[0], QtGui.QImage.Format_RGBA8888).copy()
         self.visible_previews[fid] = QtGui.QPixmap.fromImage(visible_image)
-        self.preview_selector.addItem(f"نقطه {fid} | اندازهٔ پیکسل {metadata['cell']:.2f} متر", fid)
+        label = metadata.get("name", f"نقطه {fid}")
+        self.preview_selector.addItem(f"{label} | FID={fid} | پیکسل {metadata['cell']:.2f} متر", fid)
         self.preview_selector.setCurrentIndex(self.preview_selector.count()-1)
         self.show_preview()
 
@@ -470,7 +522,7 @@ class FastWindow(QtWidgets.QMainWindow):
         fid = self.preview_selector.currentData()
         only_visible = self.preview_mode.currentData() == "visible"
         images = self.visible_previews if only_visible else self.preview_images
-        self.preview_note.setText("قرمز: قابل‌دید • سفید: سایر نواحی • خروجی: visible.shp" if only_visible else
+        self.preview_note.setText(f"قرمز: قابل‌دید • سفید: سایر نواحی • خروجی: {self.output_hint}" if only_visible else
                                   "سبز: قابل‌دید • قرمز: پنهان • خاکستری: نامعلوم • سفید: بیرون قطاع")
         if fid in images:
             self.image.setPixmap(images[fid].scaled(self.image.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.FastTransformation))

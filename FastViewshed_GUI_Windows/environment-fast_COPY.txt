@@ -1,0 +1,9 @@
+name: fast-sector-viewshed
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - gdal=3.10.3
+  - numpy>=2.0,<3
+  - pyside6>=6.9,<6.11

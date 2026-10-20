@@ -1,0 +1,38 @@
+@echo off
+setlocal
+set "CONDA_ALWAYS_YES=true"
+cd /d "%~dp0"
+set "SV_CONDA="
+if exist "%USERPROFILE%\miniforge3\condabin\conda.bat" set "SV_CONDA=%USERPROFILE%\miniforge3\condabin\conda.bat"
+if not defined SV_CONDA if exist "%LOCALAPPDATA%\miniforge3\condabin\conda.bat" set "SV_CONDA=%LOCALAPPDATA%\miniforge3\condabin\conda.bat"
+if not defined SV_CONDA if exist "%USERPROFILE%\miniconda3\condabin\conda.bat" set "SV_CONDA=%USERPROFILE%\miniconda3\condabin\conda.bat"
+if not defined SV_CONDA for /f "delims=" %%C in ('where conda.bat 2^>nul') do if not defined SV_CONDA set "SV_CONDA=%%C"
+if not defined SV_CONDA (
+    echo Install Miniforge for Windows from its official release page:
+    echo https://github.com/conda-forge/miniforge/releases
+    echo Then run this installer again. ArcGIS Python is not modified.
+    pause
+    exit /b 1
+)
+if exist "%~dp0runtime\conda-meta\history" (
+    call "%SV_CONDA%" env update --prefix "%~dp0runtime" --file "%~dp0environment-fast.yml"
+) else (
+    call "%SV_CONDA%" env create --prefix "%~dp0runtime" --file "%~dp0environment-fast.yml"
+)
+if errorlevel 1 (
+    echo Installation failed. Keep the error output for troubleshooting.
+    pause
+    exit /b 1
+)
+>"%~dp0conda_path.txt" echo "%SV_CONDA%"
+call "%SV_CONDA%" activate "%~dp0runtime"
+if errorlevel 1 exit /b 1
+python -c "from osgeo import gdal; import numpy; import PySide6; print(gdal.VersionInfo('--version'))"
+if errorlevel 1 (
+    echo Dependency validation failed.
+    pause
+    exit /b 1
+)
+echo Installed. Double-click Run_Fast_Viewshed.bat to open the GUI.
+pause
+endlocal

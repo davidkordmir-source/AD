@@ -1,0 +1,90 @@
+{
+  "application": "Fast Sector Viewshed 2.0 / independent Qt GUI + GDAL",
+  "tested_runtime": {
+    "python": "3.13.5",
+    "gdal": "3.10.3",
+    "numpy": "2.2.4",
+    "PySide6": "6.10.3",
+    "platform": "Linux / Qt offscreen"
+  },
+  "suite": {
+    "command": "python -m unittest discover -s fast_tests -v",
+    "tests": 16,
+    "passed": 16,
+    "skipped": 0,
+    "failed": 0,
+    "seconds": 1.064
+  },
+  "tests_cover": [
+    "flat ground",
+    "ridge occlusion",
+    "target height",
+    "NoData uncertainty",
+    "north wrap",
+    "full circle",
+    "vertical feet",
+    "raster scale/offset",
+    "geographic DEM",
+    "overlapping observers",
+    "bad bearings",
+    "cancellation",
+    "thin unsampled sector",
+    "real Qt file/field/run/preview workflow",
+    "rerun within same window",
+    "single-file execution without project imports"
+  ],
+  "thread_retirement_regression": "5 repeated GUI scenarios passed after the worker cleanup correction",
+  "bundled_gui_five_point_smoke": {
+    "gui": "standalone Qt app / actual Qt event loop",
+    "observers": 5,
+    "previews": 5,
+    "seconds": 0.2149288410000736,
+    "ui_wall_seconds": 0.28226213000016287
+  },
+  "benchmark": {
+    "synthetic": true,
+    "dem_shape": [
+      2400,
+      2400
+    ],
+    "source_pixel_m": 10,
+    "includes": "DEM warp, visibility, gap handling, polygonization and Shapefile writes",
+    "comparison_to_arcgis": "Not performed; user data/hardware were unavailable.",
+    "gdal": "GDAL 3.10.3, released 2025/04/01",
+    "results": [
+      {
+        "resolution_factor": 1,
+        "pixel_m": 10,
+        "wall_seconds": 2.667876008999883,
+        "engine_seconds": 2.667259075999027,
+        "observers": 5,
+        "radius_m": 5000,
+        "computed_grid_cells": 5050125
+      },
+      {
+        "resolution_factor": 2,
+        "pixel_m": 20,
+        "wall_seconds": 0.8189773430058267,
+        "engine_seconds": 0.818345441002748,
+        "observers": 5,
+        "radius_m": 5000,
+        "computed_grid_cells": 1275125
+      },
+      {
+        "resolution_factor": 4,
+        "pixel_m": 40,
+        "wall_seconds": 0.3968826780037489,
+        "engine_seconds": 0.3964911170041887,
+        "observers": 5,
+        "radius_m": 5000,
+        "computed_grid_cells": 325125
+      }
+    ]
+  },
+  "limitations": [
+    "Windows installer and Windows GUI launch not executed here.",
+    "No Windows EXE is supplied; source GUI and Conda installer are supplied.",
+    "No benchmark on the user DEM/hardware; no equivalence to Esri or Global Mapper is established.",
+    "Coarser pixels trade spatial detail for speed."
+  ]
+}

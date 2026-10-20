@@ -55,7 +55,7 @@ class FastTerrainTests(unittest.TestCase):
     def run_case(self, inputs, **changes):
         points, dem = inputs
         kwargs = dict(points=str(points), dem=str(dem), start_field="az_start", end_field="az_end",
-                      output_dir=str(self.root/"results"), radius=700, radius_unit="m", cell_size=10)
+                      output_dir=str(self.root/"results"), radius=700, radius_unit="m", cell_size=10, observer=2, receiver=0)
         kwargs.update(changes)
         folder = Path(run_fast(FastSettings(**kwargs), log=lambda message: None))
         report = json.loads((folder/"run.json").read_text(encoding="utf-8"))
@@ -93,7 +93,7 @@ class FastTerrainTests(unittest.TestCase):
         self.assertEqual(self.statuses(folder, 500755, 3950505, "visible"), [])
 
     def test_tall_target_visible_over_ridge(self):
-        folder, _ = self.run_case(self.inputs(ridge=True), target=300)
+        folder, _ = self.run_case(self.inputs(ridge=True), receiver=300)
         self.assertEqual(self.statuses(folder, 500755, 3950505), [1])
 
     def test_nodata_path_is_unknown_not_hidden_or_visible(self):
@@ -108,7 +108,7 @@ class FastTerrainTests(unittest.TestCase):
         self.assertEqual(self.statuses(folder, 500805, 3950505), [])
 
     def test_dem_vertical_feet_independent_of_xy_metres(self):
-        folder, _ = self.run_case(self.inputs(ridge=True), dem_z_unit="ft", target=60)
+        folder, _ = self.run_case(self.inputs(ridge=True), dem_z_unit="ft", receiver=60)
         self.assertEqual(self.statuses(folder, 500755, 3950505), [1])
 
     def test_merged_visibility_wins_in_overlap(self):
@@ -128,7 +128,7 @@ class FastTerrainTests(unittest.TestCase):
         ds.GetRasterBand(1).SetScale(.1)
         ds.GetRasterBand(1).SetOffset(200)
         ds = None
-        folder, _ = self.run_case((points, dem), target=20)
+        folder, _ = self.run_case((points, dem), receiver=20)
         self.assertEqual(self.statuses(folder, 500755, 3950505), [1])
 
     def test_geographic_dem_and_observers_with_projected_output(self):
@@ -166,7 +166,7 @@ class FastTerrainTests(unittest.TestCase):
         points, dem = self.inputs(start="45.123456", end="45.123457")
         with self.assertRaisesRegex(ValueError, "هیچ سلولی"):
             run_fast(FastSettings(str(points), str(dem), "az_start", "az_end", str(self.root/"results"),
-                                  radius=700, radius_unit="m", cell_size=10), log=lambda message: None)
+                                  radius=700, radius_unit="m", cell_size=10, observer=2, receiver=0), log=lambda message: None)
         result = next((self.root/"results").glob("fast_viewshed_*"))
         self.assertFalse((result/"run.json").exists())
 
@@ -230,6 +230,51 @@ class FastTerrainTests(unittest.TestCase):
         point.AddPoint_2D(500755, 3950505)
         ids = [f.GetField("src_id") for f in ds.GetLayer(0) if f.GetGeometryRef().Intersects(point)]
         self.assertEqual(ids, [1])
+
+    def test_transmitter_100_at_point_and_receiver_2_on_cells_are_not_swapped(self):
+        points, dem = self.inputs()
+        ds = gdal.Open(str(dem), gdal.GA_Update)
+        values = ds.GetRasterBand(1).ReadAsArray()
+        values[:, 35] = 150  # 50 m ridge 200 m east of the fixed transmitter.
+        ds.GetRasterBand(1).WriteArray(values)
+        ds = None
+        correct, report = self.run_case((points, dem), observer=100, receiver=2)
+        reversed_case, _ = self.run_case((points, dem), observer=2, receiver=100)
+        self.assertEqual(self.statuses(correct, 500755, 3950505, "visible"), [1])
+        self.assertEqual(self.statuses(reversed_case, 500755, 3950505, "visible"), [])
+        self.assertEqual(report["height_mapping"]["observer_at_point_m"], 100)
+        self.assertEqual(report["height_mapping"]["receiver_on_cells_m"], 2)
+        ds = ogr.Open(str(correct/"visible.shp"))
+        f = ds.GetLayer(0).GetNextFeature()
+        self.assertEqual(f.GetField("obs_m"), 100)
+        self.assertEqual(f.GetField("recv_m"), 2)
+
+    def test_sea_level_missing_elevations_are_not_opaque_unknown_barriers(self):
+        folder, report = self.run_case(self.inputs(gap=True), nodata_policy="sea_level")
+        self.assertEqual(self.statuses(folder, 500755, 3950505, "visible"), [1])
+        self.assertEqual(report["observers"][0]["counts"]["2"], 0)
+
+    def test_missing_observer_ground_may_be_explicitly_treated_as_sea_level(self):
+        inputs = self.inputs(gap=True, x=500505)
+        with self.assertRaisesRegex(ValueError, "فاقد ارتفاع"):
+            self.run_case(inputs)
+        _, report = self.run_case(inputs, nodata_policy="sea_level")
+        self.assertEqual(report["status"], "completed")
+
+    def test_selected_fid_is_processed_without_other_observers(self):
+        folder, report = self.run_case(self.inputs(extra=[(500855, "120", "250")]), observer_fid=1)
+        self.assertEqual(len(report["observers"]), 1)
+        self.assertEqual(report["observers"][0]["src_id"], 1)
+        ds = ogr.Open(str(folder/"sectors.shp"))
+        layer = ds.GetLayer(0)
+        self.assertEqual(layer.GetFeatureCount(), 1)
+        f = layer.GetNextFeature()
+        self.assertEqual(f.GetField("az_start"), 120)
+        self.assertEqual(f.GetField("az_end"), 250)
+
+    def test_missing_selected_fid_reports_it(self):
+        with self.assertRaisesRegex(ValueError, "FID=1"):
+            self.run_case(self.inputs(), observer_fid=1)
 
 
 if __name__ == "__main__":

@@ -68,7 +68,7 @@ try:
 
     def _degrees(text):
         text = text.strip()
-        match = re.fullmatch('([+-]?(?:\\d+(?:[.,]\\d*)?|[.,]\\d+))\\s*(?:°|deg)?', text, re.I)
+        match = re.fullmatch('([+-]?(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)(?:e[+-]?\\d+)?)\\s*(?:°|deg)?', text, re.I)
         if match:
             return number(match[1])
         text = re.sub('deg|°|º|[′’\']|[″\\"]|:', ' ', text, flags=re.I)
@@ -129,39 +129,45 @@ try:
         output_dir: str
         radius: float = 5
         radius_unit: str = 'km'
+        observer: float = 100
+        observer_unit: str = 'm'
         receiver: float = 2
         receiver_unit: str = 'm'
-        target: float = 0
-        target_unit: str = 'm'
         dem_z_unit: str = 'm'
         cell_size: float = 0
         resolution_factor: int = 1
         output_epsg: int = 0
-        refraction: float = 0.13
+        atmospheric_factor: float = 1.33333
         merge_coverage: bool = False
         max_grid_mcells: int = 25
         auto_coarsen: bool = True
         curvature_enabled: bool = True
+        nodata_policy: str = 'unknown'
+        observer_fid: int = -1
 
         @property
         def radius_m(self):
             return self.radius * UNITS[self.radius_unit]
 
+        @property
+        def curvature_coefficient(self):
+            return 1 / self.atmospheric_factor if self.curvature_enabled else 0.0
+
         def validate(self):
             for name in ('points', 'dem', 'start_field', 'end_field', 'output_dir'):
                 if not str(getattr(self, name)).strip():
                     raise ValueError('ورودی الزامی خالی است: ' + name)
-            for name in ('radius_unit', 'receiver_unit', 'target_unit', 'dem_z_unit'):
+            for name in ('radius_unit', 'observer_unit', 'receiver_unit', 'dem_z_unit'):
                 if getattr(self, name) not in UNITS:
                     raise ValueError('واحد نامعتبر: ' + name)
-            for name in ('radius', 'receiver', 'target', 'cell_size', 'refraction'):
+            for name in ('radius', 'observer', 'receiver', 'cell_size', 'atmospheric_factor'):
                 value = getattr(self, name)
                 if not math.isfinite(value) or value < 0:
                     raise ValueError('مقدار نامعتبر: ' + name)
             if not 0 < self.radius_m <= 300000:
                 raise ValueError('شعاع باید بزرگ\u200cتر از صفر و حداکثر ۳۰۰ کیلومتر باشد.')
-            if not 0 <= self.refraction < 1:
-                raise ValueError('ضریب شکست باید از صفر تا کمتر از یک باشد.')
+            if not 0 < self.atmospheric_factor <= 1000:
+                raise ValueError('ضریب Atmospheric Correction باید مثبت و حداکثر ۱۰۰۰ باشد.')
             if self.resolution_factor not in (1, 2, 4):
                 raise ValueError('ضریب تفکیک نامعتبر است.')
             if self.output_epsg < 0:
@@ -172,6 +178,10 @@ try:
                 raise ValueError('تنظیم خودکار پیکسل باید روشن یا خاموش باشد.')
             if not isinstance(self.curvature_enabled, bool):
                 raise ValueError('تنظیم انحنای زمین باید روشن یا خاموش باشد.')
+            if self.nodata_policy not in ('unknown', 'sea_level'):
+                raise ValueError('روش برخورد با ارتفاع ناموجود نامعتبر است.')
+            if isinstance(self.observer_fid, bool) or not isinstance(self.observer_fid, int) or self.observer_fid < -1:
+                raise ValueError('FID باید عدد صحیح از منفی یک به بالا باشد؛ منفی یک یعنی همهٔ نقاط.')
     'Compiled GDAL viewshed on local equidistant grids, exported as Shapefiles.'
     from dataclasses import asdict
     from datetime import datetime
@@ -195,7 +205,7 @@ try:
     def inspect_shape(path):
         ds = ogr.Open(str(path), 0)
         if ds is None:
-            raise ValueError('شیپ\u200cفایل باز نشد؛ فایل\u200cهای SHP، SHX و DBF را بررسی کنید.')
+            raise ValueError('فایل نقاط باز نشد؛ برای Shapefile فایل\u200cهای SHP، SHX و DBF را بررسی کنید.')
         layer = ds.GetLayer(0)
         if ogr.GT_Flatten(layer.GetGeomType()) != ogr.wkbPoint:
             raise ValueError('ورودی باید شیپ\u200cفایل نقطه\u200cای از نوع Point باشد.')
@@ -219,6 +229,8 @@ try:
         rows, errors = ([], [])
         for feature in layer:
             fid = feature.GetFID()
+            if cfg.observer_fid >= 0 and fid != cfg.observer_fid:
+                continue
             try:
                 geometry = feature.GetGeometryRef()
                 if geometry is None or geometry.IsEmpty():
@@ -234,6 +246,8 @@ try:
         if errors:
             raise ValueError('ردیف نامعتبر؛ هیچ ردیفی حذف نشد:\n' + '\n'.join(errors[:30]))
         if not rows:
+            if cfg.observer_fid >= 0:
+                raise ValueError(f'FID={cfg.observer_fid} در فایل نقاط پیدا نشد.')
             raise ValueError('شیپ\u200cفایل خالی است.')
         return (rows, sr)
 
@@ -366,7 +380,7 @@ try:
         band = warped.GetRasterBand(1)
         heights = band.ReadAsArray()
         valid = (band.GetMaskBand().ReadAsArray() != 0) & np.isfinite(heights)
-        if not valid[n, n]:
+        if not valid[n, n] and cfg.nodata_policy == 'unknown':
             raise ValueError(f'FID={fid}: محل نقطه فاقد ارتفاع DEM است.')
         input_band = source.GetRasterBand(1)
         scale = input_band.GetScale()
@@ -374,10 +388,13 @@ try:
         np.multiply(heights, 1 if scale is None else scale, out=heights)
         np.add(heights, 0 if offset is None else offset, out=heights)
         np.multiply(heights, UNITS[cfg.dem_z_unit], out=heights)
-        low = float(np.min(heights, where=valid, initial=np.inf))
-        high = float(np.max(heights, where=valid, initial=-np.inf))
-        log(f'نقطه {fid}: ارتفاع زمین در محل ناظر {heights[n, n]:.3f} متر؛ بازهٔ ارتفاع DEM در پنجره {low:.3f} تا {high:.3f} متر؛ گیرنده {cfg.receiver * UNITS[cfg.receiver_unit]:g} و هدف {cfg.target * UNITS[cfg.target_unit]:g} متر بالای زمین')
         heights[~valid] = 0
+        low = float(np.min(heights)) if cfg.nodata_policy == 'sea_level' else float(np.min(heights, where=valid, initial=np.inf))
+        high = float(np.max(heights)) if cfg.nodata_policy == 'sea_level' else float(np.max(heights, where=valid, initial=-np.inf))
+        log(f'نقطه {fid}: ارتفاع زمین در محل ناظر {heights[n, n]:.3f} متر؛ بازهٔ ارتفاع DEM در پنجره {low:.3f} تا {high:.3f} متر؛ فرستنده در نقطه {cfg.observer * UNITS[cfg.observer_unit]:g} و گیرنده روی سلول\u200cها {cfg.receiver * UNITS[cfg.receiver_unit]:g} متر بالای زمین')
+        log(f'نقطه {fid}: ارتفاع نهایی فرستنده = DEM + ارتفاع فرستنده = {float(heights[n, n]) + cfg.observer * UNITS[cfg.observer_unit]:.3f} متر')
+        if cfg.nodata_policy == 'sea_level' and (not valid.all()):
+            log(f'نقطه {fid}: طبق انتخاب کاربر ارتفاع\u200cهای ناموجود، دریا با ارتفاع صفر فرض شدند.')
         gt = warped.GetGeoTransform()
         projection = local_sr.ExportToWkt()
         band = warped = None
@@ -385,12 +402,12 @@ try:
         del heights
         maximum = radius + 2 * cell
         log(f'نقطه {fid}: محاسبهٔ دیدپذیری با موتور GDAL')
-        result = viewshed(terrain, cfg, maximum, cfg.receiver * UNITS[cfg.receiver_unit], cfg.target * UNITS[cfg.target_unit], 1 - cfg.refraction if cfg.curvature_enabled else 0, callback(0.25, 0.65))
+        result = viewshed(terrain, cfg, maximum, cfg.observer * UNITS[cfg.observer_unit], cfg.receiver * UNITS[cfg.receiver_unit], cfg.curvature_coefficient, callback(0.25, 0.65))
         terrain = None
         classes = result.GetRasterBand(1).ReadAsArray()
         result_gt = result.GetGeoTransform()
         result = None
-        if not valid.all():
+        if cfg.nodata_policy == 'unknown' and (not valid.all()):
             log(f'نقطه {fid}: بررسی مسیرهای عبوری از قسمت\u200cهای فاقد DEM')
             gap_heights = np.zeros(valid.shape, dtype=np.float32)
             gap_heights[~valid] = 1000000000.0
@@ -426,6 +443,18 @@ try:
         categories = ''.join((f'<category value="{i}" symbol="{i}" label="{CLASS_NAMES[i]}" render="true"/>' for i in colors))
         Path(path).with_suffix('.qml').write_text(f'<!DOCTYPE qgis><qgis version="3.40"><renderer-v2 type="categorizedSymbol" attr="status"><categories>{categories}</categories><symbols>{symbols}</symbols></renderer-v2></qgis>', encoding='utf-8')
 
+    def visible_radius(classes, gt):
+        """Farthest visible cell centre, without allocating a full distance grid."""
+        farthest = 0.0
+        for r, row in enumerate(classes):
+            columns = np.flatnonzero(row == 1)
+            if columns.size:
+                y = gt[3] + (r + 0.5) * gt[5]
+                for c in (columns[0], columns[-1]):
+                    x = gt[0] + (int(c) + 0.5) * gt[1]
+                    farthest = max(farthest, math.hypot(x, y))
+        return farthest
+
     def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cancelled=lambda: False, preview=lambda *args: None):
         cfg.validate()
         started = time.perf_counter()
@@ -437,12 +466,12 @@ try:
         if not source.GetProjection():
             raise ValueError('سیستم مختصات DEM مشخص نیست.')
         source_sr = spatial_ref(source.GetProjection())
-        log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع ناظر در نقطه {cfg.receiver * UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ ارتفاع هدف روی سلول\u200cها {cfg.target * UNITS[cfg.target_unit]:g} متر بالای DEM؛ انحنای زمین {('روشن' if cfg.curvature_enabled else 'خاموش')}؛ ضریب شکست {cfg.refraction:g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}")
+        log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع فرستنده/ناظر در نقطه {cfg.observer * UNITS[cfg.observer_unit]:g} متر بالای DEM؛ ارتفاع گیرنده روی سلول\u200cها {cfg.receiver * UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ انحنای زمین {('روشن' if cfg.curvature_enabled else 'خاموش')}؛ Atmospheric Correction={cfg.atmospheric_factor:g}؛ ضریب انحنای GDAL={cfg.curvature_coefficient:.8g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}؛ ارتفاع ناموجود: {cfg.nodata_policy}")
         output = Path(cfg.output_dir).expanduser().resolve()
         output.mkdir(parents=True, exist_ok=True)
         folder = output / ('fast_viewshed_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
         folder.mkdir()
-        fields = [('src_id', ogr.OFTInteger64), ('az_start', ogr.OFTReal), ('az_end', ogr.OFTReal), ('radius_m', ogr.OFTReal), ('recv_m', ogr.OFTReal), ('target_m', ogr.OFTReal), ('cell_m', ogr.OFTReal)]
+        fields = [('src_id', ogr.OFTInteger64), ('az_start', ogr.OFTReal), ('az_end', ogr.OFTReal), ('radius_m', ogr.OFTReal), ('obs_m', ogr.OFTReal), ('recv_m', ogr.OFTReal), ('cell_m', ogr.OFTReal)]
         visibility_ds = visible_ds = sector_ds = None
         union_groups = {0: ogr.Geometry(ogr.wkbMultiPolygon), 1: ogr.Geometry(ogr.wkbMultiPolygon)}
         sector_union = ogr.Geometry(ogr.wkbMultiPolygon)
@@ -465,7 +494,7 @@ try:
                     ring = output_sector.GetGeometryRef(0)
                     if any((abs(ring.GetX(i) - ring.GetX(i - 1)) > 180 for i in range(1, ring.GetPointCount()))):
                         raise ValueError('قطاع از مرز ۱۸۰ درجه می\u200cگذرد؛ یک EPSG تصویرشدهٔ مناسب برای خروجی انتخاب کنید.')
-                values = dict(src_id=fid, az_start=start, az_end=end, radius_m=cfg.radius_m, recv_m=cfg.receiver * UNITS[cfg.receiver_unit], target_m=cfg.target * UNITS[cfg.target_unit], cell_m=cell)
+                values = dict(src_id=fid, az_start=start, az_end=end, radius_m=cfg.radius_m, obs_m=cfg.observer * UNITS[cfg.observer_unit], recv_m=cfg.receiver * UNITS[cfg.receiver_unit], cell_m=cell)
                 write_feature(sector_layer, output_sector, values)
                 if cfg.merge_coverage:
                     sector_union.AddGeometry(output_sector)
@@ -494,10 +523,12 @@ try:
                 preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat))
                 counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
                 total = sum(counts.values())
+                farthest_visible = visible_radius(classes, gt)
                 log(f"نقطه {fid}: قابل\u200cدید {counts['1'] / total:.1%} | پنهان {counts['0'] / total:.1%} | نامعلوم {counts['2'] / total:.1%}؛ خروجی قابل\u200cدید: visible.shp")
+                log(f'نقطه {fid}: دورترین سلول قابل\u200cدید {farthest_visible / 1000:.3f} کیلومتر؛ حد تحلیل {cfg.radius_m / 1000:g} کیلومتر')
                 if not counts['1']:
                     log(f'نقطه {fid}: هیچ سلول قابل\u200cدیدی پیدا نشد؛ برای بررسی ارتفاع\u200cها، واحد DEM و تفکیک، run.json و گزارش را نگه دارید.')
-                summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts, areas_m2=areas, seconds=time.perf_counter() - local_start))
+                summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts, areas_m2=areas, max_visible_distance_m=farthest_visible, seconds=time.perf_counter() - local_start))
                 visibility_layer.SyncToDisk()
                 visible_layer.SyncToDisk()
                 sector_layer.SyncToDisk()
@@ -521,8 +552,8 @@ try:
                 write_qml(folder / 'coverage.shp')
             write_qml(folder / 'visibility.shp')
             write_qml(folder / 'visible.shp', visible_only=True)
-            (folder / 'README_RESULTS_FA.txt').write_text('برای نمایش محدودهٔ قابل\u200cدید روی DEM، فایل visible.shp را باز کنید.\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nدر ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\nsectors.shp فقط مرز شعاع و آزیموت تحلیل است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم.\nنمایش همهٔ این کلاس\u200cها با یک نماد، شکل قطاع کامل را نشان می\u200cدهد.\nدر صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\nبرای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع گیرنده و هدف بالای زمین، واحدها، شعاع، آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\nrun.json تنظیمات و شمارش و مساحت کلاس\u200cها را برای بررسی ذخیره می\u200cکند.\nمطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n', encoding='utf-8')
-            report = dict(status='completed', application_version='2.2.0', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output='visible.shp', outputs={'visible.shp': 'visible cells only (status=1), per observer', 'visibility.shp': 'all classes; requires class symbology or filtering', 'sectors.shp': 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData paths are conservatively marked unknown using an opaque-gap pass.', 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            (folder / 'README_RESULTS_FA.txt').write_text('برای نمایش محدودهٔ قابل\u200cدید روی DEM، فایل visible.shp را باز کنید.\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nدر ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\nsectors.shp فقط مرز شعاع و آزیموت تحلیل است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم.\nنمایش همهٔ این کلاس\u200cها با یک نماد، شکل قطاع کامل را نشان می\u200cدهد.\nدر صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\nبرای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع فرستنده در نقطه و گیرنده روی سلول\u200cها، واحدها، شعاع، آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\nrun.json تنظیمات و شمارش و مساحت کلاس\u200cها را برای بررسی ذخیره می\u200cکند.\nمطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n', encoding='utf-8')
+            report = dict(status='completed', application_version='3.0.0', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output='visible.shp', height_mapping={'observer_at_point_m': cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': cfg.receiver * UNITS[cfg.receiver_unit], 'curvature_coefficient': cfg.curvature_coefficient}, outputs={'visible.shp': 'visible cells only (status=1), per observer', 'visibility.shp': 'all classes; requires class symbology or filtering', 'sectors.shp': 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
             log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nبرای نمایش محدودهٔ قابل\u200cدید روی DEM، visible.shp را باز کنید.")
@@ -586,7 +617,7 @@ try:
 
         def __init__(self):
             super().__init__()
-            self.setWindowTitle('Fast Sector Viewshed 2.2 | دیدپذیری قطاعی مستقل')
+            self.setWindowTitle('Fast Sector Viewshed 3.0 | دیدپذیری قطاعی مستقل')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -613,6 +644,7 @@ try:
             split = QtWidgets.QSplitter()
             outer.addWidget(split, 1)
             scroll = QtWidgets.QScrollArea()
+            self.form_scroll = scroll
             scroll.setWidgetResizable(True)
             scroll.setMinimumWidth(490)
             form_widget = QtWidgets.QWidget()
@@ -621,7 +653,7 @@ try:
             scroll.setWidget(form_widget)
             split.addWidget(scroll)
             inputs, grid = self.group('داده\u200cهای ورودی', form)
-            self.path_row(grid, 0, 'points', 'شیپ\u200cفایل نقطه\u200cای', self.choose_shape)
+            self.path_row(grid, 0, 'points', 'نقاط Shapefile / GeoJSON', self.choose_shape)
             self.read_fields = QtWidgets.QPushButton('خواندن ستون\u200cهای اتریبیوت')
             self.read_fields.clicked.connect(self.load_fields)
             grid.addWidget(self.read_fields, 1, 1, 1, 2)
@@ -639,10 +671,23 @@ try:
             grid.addWidget(note, 5, 0, 1, 3)
             self.path_row(grid, 6, 'dem', 'DEM ارتفاعی', self.choose_dem)
             self.unit_row(grid, 7, 'dem_z_unit', 'واحد ارتفاع پیکسل\u200cهای DEM', only_dem=True)
+            fid = QtWidgets.QSpinBox()
+            fid.setRange(-1, 2147483647)
+            fid.setValue(-1)
+            fid.setSpecialValueText('همهٔ نقاط')
+            self.inputs['observer_fid'] = fid
+            grid.addWidget(QtWidgets.QLabel('فقط FID؛ منفی یک = همه'), 8, 0)
+            grid.addWidget(fid, 8, 1, 1, 2)
+            self.reference_button = QtWidgets.QPushButton('اعمال تنظیمات تصویر Global Mapper برای FID=1')
+            self.reference_button.clicked.connect(self.apply_reference_settings)
+            grid.addWidget(self.reference_button, 9, 0, 1, 3)
             dimensions, grid = self.group('شعاع و ارتفاع\u200cهای بالای زمین', form)
             self.number_row(grid, 0, 'radius', 'شعاع قطاع', 5, 'radius_unit', 'km')
-            self.number_row(grid, 1, 'receiver', 'ارتفاع گیرنده / ناظر', 2, 'receiver_unit')
-            self.number_row(grid, 2, 'target', 'ارتفاع آبجکت / هدف', 0, 'target_unit')
+            self.number_row(grid, 1, 'observer', 'فرستنده / ناظر در محل نقطه، بالای DEM', 100, 'observer_unit')
+            self.number_row(grid, 2, 'receiver', 'گیرنده روی سلول\u200cهای اطراف، بالای DEM', 2, 'receiver_unit')
+            mapping_note = QtWidgets.QLabel('Transmitter Elevation → ارتفاع فرستنده در نقطه\nReceiver Elevation → ارتفاع گیرنده در هر سلول مقصد')
+            mapping_note.setWordWrap(True)
+            grid.addWidget(mapping_note, 3, 0, 1, 3)
             accuracy, grid = self.group('سرعت و تفکیک مکانی', form)
             self.number_row(grid, 0, 'cell_size', 'اندازهٔ پیکسل، متر؛ صفر = خودکار', 0)
             self.inputs['cell_size'].setSpecialValueText('خودکار')
@@ -651,7 +696,10 @@ try:
                 self.resolution.addItem(label, factor)
             grid.addWidget(QtWidgets.QLabel('حالت تفکیک'), 1, 0)
             grid.addWidget(self.resolution, 1, 1, 1, 2)
-            self.number_row(grid, 2, 'refraction', 'ضریب شکست نور جوی', 0.13)
+            self.number_row(grid, 2, 'atmospheric_factor', 'Atmospheric Correction (ضریب شعاع مؤثر k)', 1.33333)
+            self.inputs['atmospheric_factor'].setDecimals(8)
+            self.inputs['atmospheric_factor'].setRange(1e-06, 1000)
+            self.inputs['atmospheric_factor'].setValue(1.33333)
             epsg = QtWidgets.QSpinBox()
             epsg.setRange(0, 999999)
             epsg.setSpecialValueText('سیستم مختصات شیپ\u200cفایل ورودی')
@@ -661,7 +709,7 @@ try:
             warning = QtWidgets.QLabel('پیکسل درشت\u200cتر سریع\u200cتر است و جزئیات کمتری نگه می\u200cدارد. نتیجهٔ موتور GDAL ممکن است با Esri یا Global Mapper تفاوت داشته باشد.')
             warning.setWordWrap(True)
             grid.addWidget(warning, 4, 0, 1, 3)
-            self.auto_coarsen = QtWidgets.QCheckBox('شبکهٔ بزرگ: افزایش خودکار پیکسل تا سقف انتخابی (کاهش جزئیات)')
+            self.auto_coarsen = QtWidgets.QCheckBox('پیکسل خودکار برای شبکهٔ بزرگ (کاهش جزئیات)')
             self.auto_coarsen.setChecked(True)
             grid.addWidget(self.auto_coarsen, 5, 0, 1, 3)
             limit = QtWidgets.QSpinBox()
@@ -675,11 +723,18 @@ try:
             grid.addWidget(memory_note, 7, 0, 1, 3)
             self.curvature = QtWidgets.QCheckBox('محاسبهٔ انحنای زمین و شکست جوی')
             self.curvature.setChecked(True)
-            self.curvature.toggled.connect(self.inputs['refraction'].setEnabled)
+            self.curvature.toggled.connect(self.inputs['atmospheric_factor'].setEnabled)
             grid.addWidget(self.curvature, 8, 0, 1, 3)
-            curvature_note = QtWidgets.QLabel('برای مقایسه با Global Mapper، وضعیت انحنای زمین و ضریب شکست هر دو اجرا را یکسان کنید؛ اثر آن در شعاع ۱۰۰ کیلومتر زیاد است.')
+            curvature_note = QtWidgets.QLabel('۱٫۳۳۳۳۳ مستقیماً مانند تصویر وارد می\u200cشود؛ ضریب انحنای GDAL برابر ۱/k است. این مقدار با ضریب شکست ۰٫۱۳ فرق دارد.')
             curvature_note.setWordWrap(True)
             grid.addWidget(curvature_note, 9, 0, 1, 3)
+            self.inputs['nodata_policy'] = QtWidgets.QComboBox()
+            self.inputs['nodata_policy'].addItem('نامعلوم؛ مسیر خلأ DEM قابل\u200cدید محسوب نشود', 'unknown')
+            self.inputs['nodata_policy'].addItem('Treat Missing Elevations as Ocean — ارتفاع صفر', 'sea_level')
+            self.inputs['nodata_policy'].setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            self.inputs['nodata_policy'].setMinimumContentsLength(12)
+            grid.addWidget(QtWidgets.QLabel('ارتفاع\u200cهای ناموجود'), 10, 0)
+            grid.addWidget(self.inputs['nodata_policy'], 10, 1, 1, 2)
             output, grid = self.group('خروجی', form)
             self.path_row(grid, 0, 'output_dir', 'پوشهٔ ذخیره', self.choose_output)
             self.inputs['output_dir'].setText(str(Path.home() / 'Documents' / 'FastViewshedResults'))
@@ -689,6 +744,14 @@ try:
             description.setWordWrap(True)
             grid.addWidget(description, 2, 0, 1, 3)
             form.addStretch()
+            for group in form_widget.findChildren(QtWidgets.QGroupBox):
+                layout = group.layout()
+                for index in range(layout.count()):
+                    widget = layout.itemAt(index).widget()
+                    _, column, _, span = layout.getItemPosition(index)
+                    if isinstance(widget, QtWidgets.QLabel) and column == 0 and (span == 1):
+                        widget.setWordWrap(True)
+                        widget.setMaximumWidth(155)
             tabs = QtWidgets.QTabWidget()
             split.addWidget(tabs)
             preview_tab = QtWidgets.QWidget()
@@ -786,7 +849,7 @@ try:
                 grid.addWidget(combo, row, 2)
 
         def choose_shape(self):
-            name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'شیپ\u200cفایل نقطه\u200cای', '', 'Shapefile (*.shp)')
+            name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'فایل نقاط', '', 'Point files (*.shp *.geojson *.json);;Shapefile (*.shp);;GeoJSON (*.geojson *.json)')
             if name:
                 self.inputs['points'].setText(name)
                 self.load_fields()
@@ -825,7 +888,7 @@ try:
                 if isinstance(widget, QtWidgets.QLineEdit):
                     data[name] = widget.text().strip()
                 elif isinstance(widget, QtWidgets.QComboBox):
-                    data[name] = widget.currentText()
+                    data[name] = widget.currentData() if name == 'nodata_policy' else widget.currentText()
                 else:
                     data[name] = widget.value()
             data.update({name: widget.currentData() for name, widget in self.unit_boxes.items()})
@@ -836,6 +899,22 @@ try:
             config = FastSettings(**data)
             config.validate()
             return config
+
+        def apply_reference_settings(self):
+            """The supplied GM dialog's public parameters, without embedding data."""
+            for name, value in (('radius', 100), ('observer', 100), ('receiver', 2), ('atmospheric_factor', 1.33333), ('cell_size', 350), ('observer_fid', 1)):
+                self.inputs[name].setValue(value)
+            for name, unit in (('radius_unit', 'km'), ('observer_unit', 'm'), ('receiver_unit', 'm'), ('dem_z_unit', 'm')):
+                self.unit_boxes[name].setCurrentIndex(self.unit_boxes[name].findData(unit))
+            for name, field in (('start_field', 'AZFR'), ('end_field', 'AZTO')):
+                index = self.inputs[name].findText(field)
+                if index >= 0:
+                    self.inputs[name].setCurrentIndex(index)
+            self.resolution.setCurrentIndex(self.resolution.findData(1))
+            self.curvature.setChecked(True)
+            self.auto_coarsen.setChecked(False)
+            self.inputs['nodata_policy'].setCurrentIndex(self.inputs['nodata_policy'].findData('sea_level'))
+            self.log.appendPlainText('تنظیم مرجع: FID=1؛ فرستنده در نقطه 100m، گیرنده روی سلول\u200cها 2m، شعاع 100km، k=1.33333، ارتفاع ناموجود=دریا. فاصلهٔ نمونه\u200cبرداری 350m تقریب فاصلهٔ زاویه\u200cای تصویر است؛ تطابق دقیق شبکه با Global Mapper تأیید نشده است.')
 
         def start_analysis(self):
             if self.thread is not None:
@@ -857,7 +936,7 @@ try:
             self.read_fields.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.cancel_event.clear()
-            self.log.appendPlainText('\n── تحلیل جدید با GDAL | نسخهٔ 2.2 ──')
+            self.log.appendPlainText('\n── تحلیل جدید با GDAL | نسخهٔ 3.0 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)

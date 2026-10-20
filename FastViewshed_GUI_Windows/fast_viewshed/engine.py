@@ -30,7 +30,7 @@ def spatial_ref(definition):
 def inspect_shape(path):
     ds = ogr.Open(str(path), 0)
     if ds is None:
-        raise ValueError("شیپ‌فایل باز نشد؛ فایل‌های SHP، SHX و DBF را بررسی کنید.")
+        raise ValueError("فایل نقاط باز نشد؛ برای Shapefile فایل‌های SHP، SHX و DBF را بررسی کنید.")
     layer = ds.GetLayer(0)
     if ogr.GT_Flatten(layer.GetGeomType()) != ogr.wkbPoint:
         raise ValueError("ورودی باید شیپ‌فایل نقطه‌ای از نوع Point باشد.")
@@ -56,6 +56,8 @@ def load_observers(cfg):
     rows, errors = [], []
     for feature in layer:
         fid = feature.GetFID()
+        if cfg.observer_fid >= 0 and fid != cfg.observer_fid:
+            continue
         try:
             geometry = feature.GetGeometryRef()
             if geometry is None or geometry.IsEmpty():
@@ -71,6 +73,8 @@ def load_observers(cfg):
     if errors:
         raise ValueError("ردیف نامعتبر؛ هیچ ردیفی حذف نشد:\n"+"\n".join(errors[:30]))
     if not rows:
+        if cfg.observer_fid >= 0:
+            raise ValueError(f"FID={cfg.observer_fid} در فایل نقاط پیدا نشد.")
         raise ValueError("شیپ‌فایل خالی است.")
     return rows, sr
 
@@ -232,7 +236,7 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     band = warped.GetRasterBand(1)
     heights = band.ReadAsArray()
     valid = (band.GetMaskBand().ReadAsArray() != 0) & np.isfinite(heights)
-    if not valid[n, n]:
+    if not valid[n, n] and cfg.nodata_policy == "unknown":
         raise ValueError(f"FID={fid}: محل نقطه فاقد ارتفاع DEM است.")
     input_band = source.GetRasterBand(1)
     scale = input_band.GetScale()
@@ -242,13 +246,17 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     np.multiply(heights, 1 if scale is None else scale, out=heights)
     np.add(heights, 0 if offset is None else offset, out=heights)
     np.multiply(heights, UNITS[cfg.dem_z_unit], out=heights)
-    low = float(np.min(heights, where=valid, initial=np.inf))
-    high = float(np.max(heights, where=valid, initial=-np.inf))
+    heights[~valid] = 0
+    low = float(np.min(heights)) if cfg.nodata_policy == "sea_level" else float(np.min(heights, where=valid, initial=np.inf))
+    high = float(np.max(heights)) if cfg.nodata_policy == "sea_level" else float(np.max(heights, where=valid, initial=-np.inf))
     log(f"نقطه {fid}: ارتفاع زمین در محل ناظر {heights[n, n]:.3f} متر؛ "
         f"بازهٔ ارتفاع DEM در پنجره {low:.3f} تا {high:.3f} متر؛ "
-        f"گیرنده {cfg.receiver*UNITS[cfg.receiver_unit]:g} و هدف "
-        f"{cfg.target*UNITS[cfg.target_unit]:g} متر بالای زمین")
-    heights[~valid] = 0
+        f"فرستنده در نقطه {cfg.observer*UNITS[cfg.observer_unit]:g} و گیرنده روی سلول‌ها "
+        f"{cfg.receiver*UNITS[cfg.receiver_unit]:g} متر بالای زمین")
+    log(f"نقطه {fid}: ارتفاع نهایی فرستنده = DEM + ارتفاع فرستنده = "
+        f"{float(heights[n, n])+cfg.observer*UNITS[cfg.observer_unit]:.3f} متر")
+    if cfg.nodata_policy == "sea_level" and not valid.all():
+        log(f"نقطه {fid}: طبق انتخاب کاربر ارتفاع‌های ناموجود، دریا با ارتفاع صفر فرض شدند.")
     gt = warped.GetGeoTransform()
     projection = local_sr.ExportToWkt()
     band = warped = None
@@ -257,16 +265,16 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     # AEQD preserves radial distances and true bearings from its central observer.
     maximum = radius+2*cell
     log(f"نقطه {fid}: محاسبهٔ دیدپذیری با موتور GDAL")
-    result = viewshed(terrain, cfg, maximum, cfg.receiver*UNITS[cfg.receiver_unit],
-                      cfg.target*UNITS[cfg.target_unit],
-                      1-cfg.refraction if cfg.curvature_enabled else 0, callback(.25, .65))
+    result = viewshed(terrain, cfg, maximum, cfg.observer*UNITS[cfg.observer_unit],
+                      cfg.receiver*UNITS[cfg.receiver_unit],
+                      cfg.curvature_coefficient, callback(.25, .65))
     terrain = None
     classes = result.GetRasterBand(1).ReadAsArray()
     result_gt = result.GetGeoTransform()
     result = None
     # GDAL does not propagate DEM gaps. A separate opaque-gap pass marks
     # downstream cells conservatively as unknown rather than falsely visible.
-    if not valid.all():
+    if cfg.nodata_policy == "unknown" and not valid.all():
         log(f"نقطه {fid}: بررسی مسیرهای عبوری از قسمت‌های فاقد DEM")
         gap_heights = np.zeros(valid.shape, dtype=np.float32)
         gap_heights[~valid] = 1e9
@@ -304,6 +312,19 @@ def write_qml(path, visible_only=False):
     Path(path).with_suffix(".qml").write_text(f'<!DOCTYPE qgis><qgis version="3.40"><renderer-v2 type="categorizedSymbol" attr="status"><categories>{categories}</categories><symbols>{symbols}</symbols></renderer-v2></qgis>', encoding="utf-8")
 
 
+def visible_radius(classes, gt):
+    """Farthest visible cell centre, without allocating a full distance grid."""
+    farthest = 0.0
+    for r, row in enumerate(classes):
+        columns = np.flatnonzero(row == 1)
+        if columns.size:
+            y = gt[3]+(r+.5)*gt[5]
+            for c in (columns[0], columns[-1]):
+                x = gt[0]+(int(c)+.5)*gt[1]
+                farthest = max(farthest, math.hypot(x, y))
+    return farthest
+
+
 def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cancelled=lambda: False, preview=lambda *args: None):
     cfg.validate()
     started = time.perf_counter()
@@ -315,17 +336,19 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     if not source.GetProjection():
         raise ValueError("سیستم مختصات DEM مشخص نیست.")
     source_sr = spatial_ref(source.GetProjection())
-    log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع ناظر در نقطه "
-        f"{cfg.receiver*UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ ارتفاع هدف روی سلول‌ها "
-        f"{cfg.target*UNITS[cfg.target_unit]:g} متر بالای DEM؛ "
+    log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع فرستنده/ناظر در نقطه "
+        f"{cfg.observer*UNITS[cfg.observer_unit]:g} متر بالای DEM؛ ارتفاع گیرنده روی سلول‌ها "
+        f"{cfg.receiver*UNITS[cfg.receiver_unit]:g} متر بالای DEM؛ "
         f"انحنای زمین {'روشن' if cfg.curvature_enabled else 'خاموش'}؛ "
-        f"ضریب شکست {cfg.refraction:g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}")
+        f"Atmospheric Correction={cfg.atmospheric_factor:g}؛ "
+        f"ضریب انحنای GDAL={cfg.curvature_coefficient:.8g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}؛ "
+        f"ارتفاع ناموجود: {cfg.nodata_policy}")
     output = Path(cfg.output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     folder = output/("fast_viewshed_"+datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
     folder.mkdir()
     fields = [("src_id", ogr.OFTInteger64), ("az_start", ogr.OFTReal), ("az_end", ogr.OFTReal),
-              ("radius_m", ogr.OFTReal), ("recv_m", ogr.OFTReal), ("target_m", ogr.OFTReal), ("cell_m", ogr.OFTReal)]
+              ("radius_m", ogr.OFTReal), ("obs_m", ogr.OFTReal), ("recv_m", ogr.OFTReal), ("cell_m", ogr.OFTReal)]
     visibility_ds = visible_ds = sector_ds = None
     union_groups = {0: ogr.Geometry(ogr.wkbMultiPolygon), 1: ogr.Geometry(ogr.wkbMultiPolygon)}
     sector_union = ogr.Geometry(ogr.wkbMultiPolygon)
@@ -353,7 +376,7 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
                 if any(abs(ring.GetX(i)-ring.GetX(i-1)) > 180 for i in range(1, ring.GetPointCount())):
                     raise ValueError("قطاع از مرز ۱۸۰ درجه می‌گذرد؛ یک EPSG تصویرشدهٔ مناسب برای خروجی انتخاب کنید.")
             values = dict(src_id=fid, az_start=start, az_end=end, radius_m=cfg.radius_m,
-                          recv_m=cfg.receiver*UNITS[cfg.receiver_unit], target_m=cfg.target*UNITS[cfg.target_unit], cell_m=cell)
+                          obs_m=cfg.observer*UNITS[cfg.observer_unit], recv_m=cfg.receiver*UNITS[cfg.receiver_unit], cell_m=cell)
             write_feature(sector_layer, output_sector, values)
             if cfg.merge_coverage:
                 sector_union.AddGeometry(output_sector)
@@ -382,13 +405,17 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat))
             counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
             total = sum(counts.values())
+            farthest_visible = visible_radius(classes, gt)
             log(f"نقطه {fid}: قابل‌دید {counts['1']/total:.1%} | "
                 f"پنهان {counts['0']/total:.1%} | نامعلوم {counts['2']/total:.1%}؛ "
                 "خروجی قابل‌دید: visible.shp")
+            log(f"نقطه {fid}: دورترین سلول قابل‌دید {farthest_visible/1000:.3f} کیلومتر؛ "
+                f"حد تحلیل {cfg.radius_m/1000:g} کیلومتر")
             if not counts["1"]:
                 log(f"نقطه {fid}: هیچ سلول قابل‌دیدی پیدا نشد؛ برای بررسی ارتفاع‌ها، واحد DEM و تفکیک، run.json و گزارش را نگه دارید.")
             summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts,
                                   areas_m2=areas,
+                                  max_visible_distance_m=farthest_visible,
                                   seconds=time.perf_counter()-local_start))
             visibility_layer.SyncToDisk()
             visible_layer.SyncToDisk()
@@ -424,21 +451,24 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             "visibility.shp هر سه کلاس را دارد: 1=قابل‌دید، 0=پنهان، 2=نامعلوم.\n"
             "نمایش همهٔ این کلاس‌ها با یک نماد، شکل قطاع کامل را نشان می‌دهد.\n"
             "در صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\n"
-            "برای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع گیرنده و هدف بالای زمین، واحدها، شعاع، "
+            "برای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع فرستنده در نقطه و گیرنده روی سلول‌ها، واحدها، شعاع، "
             "آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\n"
             "run.json تنظیمات و شمارش و مساحت کلاس‌ها را برای بررسی ذخیره می‌کند.\n"
             "مطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n",
             encoding="utf-8")
-        report = dict(status="completed", application_version="2.2.0",
+        report = dict(status="completed", application_version="3.0.0",
                       engine=gdal.VersionInfo("--version"), method="GDAL GVM_Edge / Wang",
                       settings=asdict(cfg), observers=summaries, seconds=time.perf_counter()-started,
                       output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES,
                       primary_output="visible.shp",
+                      height_mapping={"observer_at_point_m": cfg.observer*UNITS[cfg.observer_unit],
+                                      "receiver_on_cells_m": cfg.receiver*UNITS[cfg.receiver_unit],
+                                      "curvature_coefficient": cfg.curvature_coefficient},
                       outputs={"visible.shp": "visible cells only (status=1), per observer",
                                "visibility.shp": "all classes; requires class symbology or filtering",
                                "sectors.shp": "analysis bounds, not visibility"},
                       notes=["Per-observer AEQD grids preserve radial distances and true bearings.",
-                             "NoData paths are conservatively marked unknown using an opaque-gap pass.",
+                             "NoData policy: "+cfg.nodata_policy,
                              "Results are grid approximations; equivalence to Esri/Global Mapper is not established."])
         (folder/"run.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         progress(1)

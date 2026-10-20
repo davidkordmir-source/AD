@@ -1,4 +1,4 @@
-# Fast Sector Viewshed 2.2
+# Fast Sector Viewshed 3.0
 
 Primary output: visible.shp (visible cells only). visibility.shp contains all classes; sectors.shp contains analysis bounds.
 

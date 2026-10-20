@@ -68,12 +68,14 @@ class GuiTests(unittest.TestCase):
         window.inputs["radius"].setValue(700)
         window.unit_boxes["radius_unit"].setCurrentIndex(window.unit_boxes["radius_unit"].findData("m"))
         window.inputs["cell_size"].setValue(10)
+        window.inputs["observer"].setValue(2)
+        window.inputs["receiver"].setValue(0)
         self.assertTrue(window.settings().auto_coarsen)
         self.assertEqual(window.settings().max_grid_mcells, 25)
         self.assertTrue(window.settings().curvature_enabled)
         window.curvature.setChecked(False)
         self.assertFalse(window.settings().curvature_enabled)
-        self.assertFalse(window.inputs["refraction"].isEnabled())
+        self.assertFalse(window.inputs["atmospheric_factor"].isEnabled())
         window.curvature.setChecked(True)
         window.auto_coarsen.setChecked(False)
         window.inputs["max_grid_mcells"].setValue(40)
@@ -97,7 +99,7 @@ class GuiTests(unittest.TestCase):
         first_result = window.result_folder
         # A second run in the same window exercises worker/thread retirement;
         # the first result must remain intact and the new target must be used.
-        window.inputs["target"].setValue(300)
+        window.inputs["receiver"].setValue(300)
         QtTest.QTest.mouseClick(window.run_button, QtCore.Qt.LeftButton)
         self.wait_for_analysis()
         self.assertIsNone(window.thread, msg=window.log.toPlainText())
@@ -142,6 +144,30 @@ class GuiTests(unittest.TestCase):
         classes = self.window.preview_images[0].toImage()
         self.assertEqual(classes.pixelColor(0, 0).alpha(), 255)
         self.assertGreater(classes.pixelColor(1, 0).green(), classes.pixelColor(1, 0).red())
+
+    def test_reference_button_maps_transmitter_receiver_k_fid_and_sea_policy(self):
+        points, dem = self.data.inputs(extra=[(500855, "120", "250")])
+        window = self.window
+        window.inputs["points"].setText(str(points))
+        window.load_fields()
+        window.inputs["start_field"].setCurrentText("az_start")
+        window.inputs["end_field"].setCurrentText("az_end")
+        window.inputs["dem"].setText(str(dem))
+        QtTest.QTest.mouseClick(window.reference_button, QtCore.Qt.LeftButton)
+        cfg = window.settings()
+        self.assertEqual(cfg.observer, 100)
+        self.assertEqual(cfg.receiver, 2)
+        self.assertEqual(cfg.radius_m, 100000)
+        self.assertEqual(cfg.observer_fid, 1)
+        self.assertEqual(cfg.nodata_policy, "sea_level")
+        self.assertAlmostEqual(cfg.curvature_coefficient, .75, places=5)
+        self.assertEqual(cfg.cell_size, 350)
+        self.assertFalse(cfg.auto_coarsen)
+        self.assertIn("تقریب", window.log.toPlainText())
+
+    def test_form_fields_fit_their_viewport(self):
+        self.app.processEvents()
+        self.assertEqual(self.window.form_scroll.horizontalScrollBar().maximum(), 0)
 
 
 if __name__ == "__main__":

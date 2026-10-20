@@ -17,7 +17,7 @@ class CurvatureTests(unittest.TestCase):
         results = {}
         for curved in (True, False):
             cfg = FastSettings("p", "d", "s", "e", "o", radius=100, radius_unit="km",
-                               receiver=2, target=100, cell_size=cell, curvature_enabled=curved)
+                               observer=100, receiver=2, cell_size=cell, curvature_enabled=curved)
             classes, gt, _, _, _ = local_result(source, sr, (0, 51, 35, 0, 360), cfg,
                                                 lambda _: None, lambda _: None, lambda: False)
             def sample(distance):
@@ -27,7 +27,7 @@ class CurvatureTests(unittest.TestCase):
             self.assertEqual(sample(20000), 1)
             results[curved] = sample(70000)
         # With standard refraction, the flat-terrain horizon for these two
-        # heights is about 44 km. Disabling curvature removes this limit.
+        # heights is about 47 km at k=4/3. Disabling curvature removes this limit.
         self.assertEqual(results[True], 0)
         self.assertEqual(results[False], 1)
 

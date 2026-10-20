@@ -1,3 +1,3 @@
 """Standalone GDAL/Qt sector viewshed; no ArcGIS or ArcPy dependency."""
 
-__version__ = "2.2.0"
+__version__ = "3.0.0"

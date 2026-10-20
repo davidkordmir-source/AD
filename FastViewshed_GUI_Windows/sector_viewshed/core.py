@@ -28,7 +28,7 @@ def number(value):
 def _degrees(text):
     text = text.strip()
     # Decimal degrees, optionally followed by a degree sign or 'deg'.
-    match = re.fullmatch(r"([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+))\s*(?:°|deg)?", text, re.I)
+    match = re.fullmatch(r"([+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:e[+-]?\d+)?)\s*(?:°|deg)?", text, re.I)
     if match:
         return number(match[1])
     # DMS requires separators: 123:30:00 or 123°30'00". Two parts mean D:M.

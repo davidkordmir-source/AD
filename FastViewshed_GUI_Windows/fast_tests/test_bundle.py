@@ -36,7 +36,7 @@ result = app["run_fast"](config, log=lambda message: None)
 print(json.dumps({"result": result}))
 '''
                 config = dict(points=str(points), dem=str(dem), start_field="az_start", end_field="az_end",
-                              output_dir=str(fixture.root/"bundle_results"), radius=700, radius_unit="m", cell_size=10)
+                              output_dir=str(fixture.root/"bundle_results"), radius=700, radius_unit="m", cell_size=10, observer=2, receiver=0)
                 process = subprocess.run([sys.executable, "-c", code, str(script)], cwd=directory,
                                          input=json.dumps(config)+"\n", capture_output=True, text=True, timeout=30)
                 self.assertEqual(process.returncode, 0, msg=process.stderr)

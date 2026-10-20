@@ -52,7 +52,7 @@ def main():
     for limit, automatic in ((25, True), (40, False)):
         config = app["FastSettings"](str(points), str(dem), "az_start", "az_end", str(folder/"results"),
                                       radius=radius, radius_unit="m", cell_size=cell,
-                                      receiver=2, target=100,
+                                      observer=100, receiver=2,
                                       max_grid_mcells=limit, auto_coarsen=automatic)
         started = time.perf_counter()
         output = Path(app["run_fast"](config, log=lambda text: print(text, flush=True)))
@@ -77,7 +77,7 @@ def main():
         assert all(f.GetField("status") == 1 for f in ds.GetLayer(0))
         ds = None
         results.append(dict(max_grid_mcells=limit, auto_coarsen=automatic,
-                            actual_pixel_m=observer["cell_m"], radius_m=radius, receiver_m=2, target_m=100,
+                            actual_pixel_m=observer["cell_m"], radius_m=radius, observer_m=100, receiver_m=2,
                             counts=observer["counts"],
                             seconds=time.perf_counter()-started, status="completed"))
     (folder/"validation.json").write_text(json.dumps(dict(synthetic=True, requested_grid=[size, size],

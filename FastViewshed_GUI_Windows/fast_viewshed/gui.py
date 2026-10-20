@@ -60,7 +60,7 @@ class AnalysisWorker(QtCore.QObject):
 class FastWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fast Sector Viewshed 2.2 | دیدپذیری قطاعی مستقل")
+        self.setWindowTitle("Fast Sector Viewshed 3.0 | دیدپذیری قطاعی مستقل")
         self.resize(1260, 860)
         self.setMinimumSize(940, 650)
         self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -87,6 +87,7 @@ class FastWindow(QtWidgets.QMainWindow):
         split = QtWidgets.QSplitter()
         outer.addWidget(split, 1)
         scroll = QtWidgets.QScrollArea()
+        self.form_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(490)
         form_widget = QtWidgets.QWidget()
@@ -95,7 +96,7 @@ class FastWindow(QtWidgets.QMainWindow):
         scroll.setWidget(form_widget)
         split.addWidget(scroll)
         inputs, grid = self.group("داده‌های ورودی", form)
-        self.path_row(grid, 0, "points", "شیپ‌فایل نقطه‌ای", self.choose_shape)
+        self.path_row(grid, 0, "points", "نقاط Shapefile / GeoJSON", self.choose_shape)
         self.read_fields = QtWidgets.QPushButton("خواندن ستون‌های اتریبیوت")
         self.read_fields.clicked.connect(self.load_fields)
         grid.addWidget(self.read_fields, 1, 1, 1, 2)
@@ -113,10 +114,23 @@ class FastWindow(QtWidgets.QMainWindow):
         grid.addWidget(note, 5, 0, 1, 3)
         self.path_row(grid, 6, "dem", "DEM ارتفاعی", self.choose_dem)
         self.unit_row(grid, 7, "dem_z_unit", "واحد ارتفاع پیکسل‌های DEM", only_dem=True)
+        fid = QtWidgets.QSpinBox()
+        fid.setRange(-1, 2147483647)
+        fid.setValue(-1)
+        fid.setSpecialValueText("همهٔ نقاط")
+        self.inputs["observer_fid"] = fid
+        grid.addWidget(QtWidgets.QLabel("فقط FID؛ منفی یک = همه"), 8, 0)
+        grid.addWidget(fid, 8, 1, 1, 2)
+        self.reference_button = QtWidgets.QPushButton("اعمال تنظیمات تصویر Global Mapper برای FID=1")
+        self.reference_button.clicked.connect(self.apply_reference_settings)
+        grid.addWidget(self.reference_button, 9, 0, 1, 3)
         dimensions, grid = self.group("شعاع و ارتفاع‌های بالای زمین", form)
         self.number_row(grid, 0, "radius", "شعاع قطاع", 5, "radius_unit", "km")
-        self.number_row(grid, 1, "receiver", "ارتفاع گیرنده / ناظر", 2, "receiver_unit")
-        self.number_row(grid, 2, "target", "ارتفاع آبجکت / هدف", 0, "target_unit")
+        self.number_row(grid, 1, "observer", "فرستنده / ناظر در محل نقطه، بالای DEM", 100, "observer_unit")
+        self.number_row(grid, 2, "receiver", "گیرنده روی سلول‌های اطراف، بالای DEM", 2, "receiver_unit")
+        mapping_note = QtWidgets.QLabel("Transmitter Elevation → ارتفاع فرستنده در نقطه\nReceiver Elevation → ارتفاع گیرنده در هر سلول مقصد")
+        mapping_note.setWordWrap(True)
+        grid.addWidget(mapping_note, 3, 0, 1, 3)
         accuracy, grid = self.group("سرعت و تفکیک مکانی", form)
         self.number_row(grid, 0, "cell_size", "اندازهٔ پیکسل، متر؛ صفر = خودکار", 0)
         self.inputs["cell_size"].setSpecialValueText("خودکار")
@@ -125,7 +139,10 @@ class FastWindow(QtWidgets.QMainWindow):
             self.resolution.addItem(label, factor)
         grid.addWidget(QtWidgets.QLabel("حالت تفکیک"), 1, 0)
         grid.addWidget(self.resolution, 1, 1, 1, 2)
-        self.number_row(grid, 2, "refraction", "ضریب شکست نور جوی", .13)
+        self.number_row(grid, 2, "atmospheric_factor", "Atmospheric Correction (ضریب شعاع مؤثر k)", 1.33333)
+        self.inputs["atmospheric_factor"].setDecimals(8)
+        self.inputs["atmospheric_factor"].setRange(.000001, 1000)
+        self.inputs["atmospheric_factor"].setValue(1.33333)
         epsg = QtWidgets.QSpinBox()
         epsg.setRange(0, 999999)
         epsg.setSpecialValueText("سیستم مختصات شیپ‌فایل ورودی")
@@ -135,7 +152,7 @@ class FastWindow(QtWidgets.QMainWindow):
         warning = QtWidgets.QLabel("پیکسل درشت‌تر سریع‌تر است و جزئیات کمتری نگه می‌دارد. نتیجهٔ موتور GDAL ممکن است با Esri یا Global Mapper تفاوت داشته باشد.")
         warning.setWordWrap(True)
         grid.addWidget(warning, 4, 0, 1, 3)
-        self.auto_coarsen = QtWidgets.QCheckBox("شبکهٔ بزرگ: افزایش خودکار پیکسل تا سقف انتخابی (کاهش جزئیات)")
+        self.auto_coarsen = QtWidgets.QCheckBox("پیکسل خودکار برای شبکهٔ بزرگ (کاهش جزئیات)")
         self.auto_coarsen.setChecked(True)
         grid.addWidget(self.auto_coarsen, 5, 0, 1, 3)
         limit = QtWidgets.QSpinBox()
@@ -149,11 +166,18 @@ class FastWindow(QtWidgets.QMainWindow):
         grid.addWidget(memory_note, 7, 0, 1, 3)
         self.curvature = QtWidgets.QCheckBox("محاسبهٔ انحنای زمین و شکست جوی")
         self.curvature.setChecked(True)
-        self.curvature.toggled.connect(self.inputs["refraction"].setEnabled)
+        self.curvature.toggled.connect(self.inputs["atmospheric_factor"].setEnabled)
         grid.addWidget(self.curvature, 8, 0, 1, 3)
-        curvature_note = QtWidgets.QLabel("برای مقایسه با Global Mapper، وضعیت انحنای زمین و ضریب شکست هر دو اجرا را یکسان کنید؛ اثر آن در شعاع ۱۰۰ کیلومتر زیاد است.")
+        curvature_note = QtWidgets.QLabel("۱٫۳۳۳۳۳ مستقیماً مانند تصویر وارد می‌شود؛ ضریب انحنای GDAL برابر ۱/k است. این مقدار با ضریب شکست ۰٫۱۳ فرق دارد.")
         curvature_note.setWordWrap(True)
         grid.addWidget(curvature_note, 9, 0, 1, 3)
+        self.inputs["nodata_policy"] = QtWidgets.QComboBox()
+        self.inputs["nodata_policy"].addItem("نامعلوم؛ مسیر خلأ DEM قابل‌دید محسوب نشود", "unknown")
+        self.inputs["nodata_policy"].addItem("Treat Missing Elevations as Ocean — ارتفاع صفر", "sea_level")
+        self.inputs["nodata_policy"].setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.inputs["nodata_policy"].setMinimumContentsLength(12)
+        grid.addWidget(QtWidgets.QLabel("ارتفاع‌های ناموجود"), 10, 0)
+        grid.addWidget(self.inputs["nodata_policy"], 10, 1, 1, 2)
         output, grid = self.group("خروجی", form)
         self.path_row(grid, 0, "output_dir", "پوشهٔ ذخیره", self.choose_output)
         self.inputs["output_dir"].setText(str(Path.home()/"Documents"/"FastViewshedResults"))
@@ -163,6 +187,16 @@ class FastWindow(QtWidgets.QMainWindow):
         description.setWordWrap(True)
         grid.addWidget(description, 2, 0, 1, 3)
         form.addStretch()
+        # Long Persian labels must wrap instead of forcing the entire form
+        # wider than its viewport and clipping field names and browse buttons.
+        for group in form_widget.findChildren(QtWidgets.QGroupBox):
+            layout = group.layout()
+            for index in range(layout.count()):
+                widget = layout.itemAt(index).widget()
+                _, column, _, span = layout.getItemPosition(index)
+                if isinstance(widget, QtWidgets.QLabel) and column == 0 and span == 1:
+                    widget.setWordWrap(True)
+                    widget.setMaximumWidth(155)
 
         tabs = QtWidgets.QTabWidget()
         split.addWidget(tabs)
@@ -274,7 +308,7 @@ class FastWindow(QtWidgets.QMainWindow):
             grid.addWidget(combo, row, 2)
 
     def choose_shape(self):
-        name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "شیپ‌فایل نقطه‌ای", "", "Shapefile (*.shp)")
+        name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "فایل نقاط", "", "Point files (*.shp *.geojson *.json);;Shapefile (*.shp);;GeoJSON (*.geojson *.json)")
         if name:
             self.inputs["points"].setText(name)
             self.load_fields()
@@ -313,7 +347,7 @@ class FastWindow(QtWidgets.QMainWindow):
             if isinstance(widget, QtWidgets.QLineEdit):
                 data[name] = widget.text().strip()
             elif isinstance(widget, QtWidgets.QComboBox):
-                data[name] = widget.currentText()
+                data[name] = widget.currentData() if name == "nodata_policy" else widget.currentText()
             else:
                 data[name] = widget.value()
         data.update({name: widget.currentData() for name, widget in self.unit_boxes.items()})
@@ -324,6 +358,23 @@ class FastWindow(QtWidgets.QMainWindow):
         config = FastSettings(**data)
         config.validate()
         return config
+
+    def apply_reference_settings(self):
+        """The supplied GM dialog's public parameters, without embedding data."""
+        for name, value in (("radius", 100), ("observer", 100), ("receiver", 2),
+                            ("atmospheric_factor", 1.33333), ("cell_size", 350), ("observer_fid", 1)):
+            self.inputs[name].setValue(value)
+        for name, unit in (("radius_unit", "km"), ("observer_unit", "m"), ("receiver_unit", "m"), ("dem_z_unit", "m")):
+            self.unit_boxes[name].setCurrentIndex(self.unit_boxes[name].findData(unit))
+        for name, field in (("start_field", "AZFR"), ("end_field", "AZTO")):
+            index = self.inputs[name].findText(field)
+            if index >= 0:
+                self.inputs[name].setCurrentIndex(index)
+        self.resolution.setCurrentIndex(self.resolution.findData(1))
+        self.curvature.setChecked(True)
+        self.auto_coarsen.setChecked(False)
+        self.inputs["nodata_policy"].setCurrentIndex(self.inputs["nodata_policy"].findData("sea_level"))
+        self.log.appendPlainText("تنظیم مرجع: FID=1؛ فرستنده در نقطه 100m، گیرنده روی سلول‌ها 2m، شعاع 100km، k=1.33333، ارتفاع ناموجود=دریا. فاصلهٔ نمونه‌برداری 350m تقریب فاصلهٔ زاویه‌ای تصویر است؛ تطابق دقیق شبکه با Global Mapper تأیید نشده است.")
 
     def start_analysis(self):
         if self.thread is not None:
@@ -345,7 +396,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.read_fields.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.cancel_event.clear()
-        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 2.2 ──")
+        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 3.0 ──")
         self.status.setText("در حال پردازش…")
         self.thread = QtCore.QThread(self)
         self.worker = AnalysisWorker(config, self.cancel_event)

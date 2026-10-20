@@ -139,6 +139,8 @@ try:
         output_epsg: int = 0
         refraction: float = 0.13
         merge_coverage: bool = False
+        max_grid_mcells: int = 25
+        auto_coarsen: bool = True
 
         @property
         def radius_m(self):
@@ -163,6 +165,10 @@ try:
                 raise ValueError('ضریب تفکیک نامعتبر است.')
             if self.output_epsg < 0:
                 raise ValueError('EPSG نامعتبر است.')
+            if isinstance(self.max_grid_mcells, bool) or not isinstance(self.max_grid_mcells, int) or (not 1 <= self.max_grid_mcells <= 100):
+                raise ValueError('سقف شبکه باید عدد صحیح از ۱ تا ۱۰۰ میلیون سلول باشد.')
+            if not isinstance(self.auto_coarsen, bool):
+                raise ValueError('تنظیم خودکار پیکسل باید روشن یا خاموش باشد.')
     'Compiled GDAL viewshed on local equidistant grids, exported as Shapefiles.'
     from dataclasses import asdict
     from datetime import datetime
@@ -175,7 +181,6 @@ try:
     gdal.UseExceptions()
     ogr.UseExceptions()
     osr.UseExceptions()
-    MAX_GRID_CELLS = 25000000
     CLASS_NAMES = {0: 'hidden', 1: 'visible', 2: 'unknown'}
 
     def spatial_ref(definition):
@@ -306,6 +311,33 @@ try:
             raise ValueError('اندازهٔ پیکسل DEM قابل تعیین نیست؛ مقدار متری را دستی وارد کنید.')
         return size
 
+    def grid_plan(radius, requested_cell, max_cells, auto_coarsen, fid, log):
+        """Bound the actual odd, padded grid; never alter the requested radius."""
+
+        def dimensions(cell):
+            n = int(math.ceil(radius / cell)) + 3
+            return (n, 2 * n + 1)
+        n, size = dimensions(requested_cell)
+        if size * size <= max_cells:
+            return (requested_cell, n, size)
+        maximum_side = math.isqrt(max_cells)
+        if maximum_side % 2 == 0:
+            maximum_side -= 1
+        radius_pixels = (maximum_side - 1) // 2 - 3
+        if radius_pixels < 2:
+            raise ValueError('سقف شبکه برای تحلیل کافی نیست.')
+        minimum_cell = math.nextafter(radius / radius_pixels, math.inf)
+        if not auto_coarsen:
+            multiplier = minimum_cell / requested_cell
+            raise ValueError(f'FID={fid}: شبکهٔ درخواستی {size}×{size} ({size * size / 1000000.0:.2f} میلیون سلول) از سقف {max_cells / 1000000.0:g} میلیون بیشتر است. اندازهٔ پیکسل نهایی باید حداقل {math.ceil(minimum_cell * 1000000.0) / 1000000.0:.6f} متر ({multiplier:.3f} برابر مقدار فعلی) باشد؛ تنظیم خودکار پیکسل را روشن کنید یا سقف شبکه را با توجه به RAM افزایش دهید.')
+        cell = minimum_cell
+        n, adjusted_size = dimensions(cell)
+        while adjusted_size * adjusted_size > max_cells:
+            cell = math.nextafter(cell, math.inf)
+            n, adjusted_size = dimensions(cell)
+        log(f'نقطه {fid}: تنظیم خودکار برای سقف {max_cells / 1000000.0:g} میلیون سلول؛ پیکسل از {requested_cell:.6g} به {cell:.6g} متر افزایش یافت (کاهش جزئیات مکانی)؛ شبکه {size}×{size} → {adjusted_size}×{adjusted_size}. شعاع و آزیموت تغییر نکردند.')
+        return (cell, n, adjusted_size)
+
     def local_result(source, source_sr, row, cfg, log, progress, cancelled):
         fid, lon, lat, start, end = row
         local_sr = spatial_ref(f'+proj=aeqd +lat_0={lat:.12f} +lon_0={lon:.12f} +datum=WGS84 +units=m +no_defs')
@@ -313,10 +345,7 @@ try:
         radius = cfg.radius_m
         if radius < 2 * cell:
             raise ValueError(f'FID={fid}: شعاع باید حداقل دو پیکسل باشد؛ اندازهٔ پیکسل {cell:g} متر است.')
-        n = int(math.ceil(radius / cell)) + 3
-        size = 2 * n + 1
-        if size * size > MAX_GRID_CELLS:
-            raise ValueError(f'FID={fid}: شبکه {size}×{size} بیش از حد بزرگ است؛ شعاع را کم یا اندازهٔ پیکسل را بیشتر کنید.')
+        cell, n, size = grid_plan(radius, cell, cfg.max_grid_mcells * 1000000, cfg.auto_coarsen, fid, log)
         edge = (n + 0.5) * cell
         log(f'نقطه {fid}: پیکسل {cell:.3f} m | شبکه {size}×{size}')
 
@@ -339,23 +368,34 @@ try:
         input_band = source.GetRasterBand(1)
         scale = input_band.GetScale()
         offset = input_band.GetOffset()
-        heights[valid] = (heights[valid] * (1 if scale is None else scale) + (0 if offset is None else offset)) * UNITS[cfg.dem_z_unit]
+        np.multiply(heights, 1 if scale is None else scale, out=heights)
+        np.add(heights, 0 if offset is None else offset, out=heights)
+        np.multiply(heights, UNITS[cfg.dem_z_unit], out=heights)
         heights[~valid] = 0
         gt = warped.GetGeoTransform()
         projection = local_sr.ExportToWkt()
+        band = warped = None
         terrain = raster_dataset(heights, gt, projection)
+        del heights
         maximum = radius + 2 * cell
         log(f'نقطه {fid}: محاسبهٔ دیدپذیری با موتور GDAL')
         result = viewshed(terrain, cfg, maximum, cfg.receiver * UNITS[cfg.receiver_unit], cfg.target * UNITS[cfg.target_unit], 1 - cfg.refraction, callback(0.25, 0.65))
-        classes = result.GetRasterBand(1).ReadAsArray().astype(np.uint8)
+        terrain = None
+        classes = result.GetRasterBand(1).ReadAsArray()
         result_gt = result.GetGeoTransform()
+        result = None
         if not valid.all():
             log(f'نقطه {fid}: بررسی مسیرهای عبوری از قسمت\u200cهای فاقد DEM')
-            gaps = raster_dataset(np.where(valid, 0.0, 1000000000.0).astype(np.float32), gt, projection)
+            gap_heights = np.zeros(valid.shape, dtype=np.float32)
+            gap_heights[~valid] = 1000000000.0
+            gaps = raster_dataset(gap_heights, gt, projection)
+            del gap_heights
             certainty = viewshed(gaps, cfg, maximum, 0, 0, 0, callback(0.65, 0.8))
-            if certainty.GetGeoTransform() != result_gt or (certainty.RasterXSize, certainty.RasterYSize) != (result.RasterXSize, result.RasterYSize):
+            gaps = None
+            if certainty.GetGeoTransform() != result_gt or (certainty.RasterXSize, certainty.RasterYSize) != (classes.shape[1], classes.shape[0]):
                 raise RuntimeError('شبکهٔ کنترل NoData با نتیجه هم\u200cتراز نیست.')
             clear = certainty.GetRasterBand(1).ReadAsArray() == 1
+            certainty = None
             off_col = int(round((result_gt[0] - gt[0]) / cell))
             off_row = int(round((gt[3] - result_gt[3]) / cell))
             valid_view = valid[off_row:off_row + classes.shape[0], off_col:off_col + classes.shape[1]]
@@ -444,6 +484,8 @@ try:
                 summaries.append(dict(src_id=fid, cell_m=cell, grid_shape=list(classes.shape), counts=counts, seconds=time.perf_counter() - local_start))
                 visibility_layer.SyncToDisk()
                 sector_layer.SyncToDisk()
+                layer = polygons = raster = None
+                del classes
             visibility_layer = sector_layer = None
             visibility_ds = sector_ds = None
             if cfg.merge_coverage:
@@ -461,7 +503,7 @@ try:
                 coverage_layer = coverage_ds = None
                 write_qml(folder / 'coverage.shp')
             write_qml(folder / 'visibility.shp')
-            report = dict(status='completed', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData paths are conservatively marked unknown using an opaque-gap pass.', 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            report = dict(status='completed', application_version='2.1.0', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData paths are conservatively marked unknown using an opaque-gap pass.', 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
             log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}")
@@ -525,7 +567,7 @@ try:
 
         def __init__(self):
             super().__init__()
-            self.setWindowTitle('Fast Sector Viewshed | دیدپذیری قطاعی مستقل')
+            self.setWindowTitle('Fast Sector Viewshed 2.1 | دیدپذیری قطاعی مستقل')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -599,6 +641,18 @@ try:
             warning = QtWidgets.QLabel('پیکسل درشت\u200cتر سریع\u200cتر است و جزئیات کمتری نگه می\u200cدارد. نتیجهٔ موتور GDAL ممکن است با Esri یا Global Mapper تفاوت داشته باشد.')
             warning.setWordWrap(True)
             grid.addWidget(warning, 4, 0, 1, 3)
+            self.auto_coarsen = QtWidgets.QCheckBox('شبکهٔ بزرگ: افزایش خودکار پیکسل تا سقف انتخابی (کاهش جزئیات)')
+            self.auto_coarsen.setChecked(True)
+            grid.addWidget(self.auto_coarsen, 5, 0, 1, 3)
+            limit = QtWidgets.QSpinBox()
+            limit.setRange(1, 100)
+            limit.setValue(25)
+            self.inputs['max_grid_mcells'] = limit
+            grid.addWidget(QtWidgets.QLabel('سقف شبکهٔ هر نقطه، میلیون سلول'), 6, 0)
+            grid.addWidget(limit, 6, 1, 1, 2)
+            memory_note = QtWidgets.QLabel('برای حفظ پیکسل درخواستی، تنظیم خودکار را خاموش و سقف را افزایش دهید. شبکهٔ بزرگ حافظه و زمان بیشتری مصرف می\u200cکند؛ این عدد سقف مصرف RAM نیست.')
+            memory_note.setWordWrap(True)
+            grid.addWidget(memory_note, 7, 0, 1, 3)
             output, grid = self.group('خروجی', form)
             self.path_row(grid, 0, 'output_dir', 'پوشهٔ ذخیره', self.choose_output)
             self.inputs['output_dir'].setText(str(Path.home() / 'Documents' / 'FastViewshedResults'))
@@ -743,6 +797,7 @@ try:
             data.update({name: widget.currentData() for name, widget in self.unit_boxes.items()})
             data['resolution_factor'] = self.resolution.currentData()
             data['merge_coverage'] = self.merge.isChecked()
+            data['auto_coarsen'] = self.auto_coarsen.isChecked()
             config = FastSettings(**data)
             config.validate()
             return config
@@ -766,7 +821,7 @@ try:
             self.read_fields.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.cancel_event.clear()
-            self.log.appendPlainText('\n── تحلیل جدید با GDAL ──')
+            self.log.appendPlainText('\n── تحلیل جدید با GDAL | نسخهٔ 2.1 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)
@@ -810,6 +865,8 @@ try:
 
         @QtCore.Slot(int, object, object)
         def receive_preview(self, fid, classes, metadata):
+            stride = max(1, (max(classes.shape) + 1399) // 1400)
+            classes = classes[::stride, ::stride]
             rgba = np.full((*classes.shape, 4), 255, dtype=np.uint8)
             rgba[classes == 0] = (221, 72, 77, 255)
             rgba[classes == 1] = (42, 184, 111, 255)

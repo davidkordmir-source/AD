@@ -60,7 +60,7 @@ class AnalysisWorker(QtCore.QObject):
 class FastWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fast Sector Viewshed | دیدپذیری قطاعی مستقل")
+        self.setWindowTitle("Fast Sector Viewshed 2.1 | دیدپذیری قطاعی مستقل")
         self.resize(1260, 860)
         self.setMinimumSize(940, 650)
         self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -134,6 +134,18 @@ class FastWindow(QtWidgets.QMainWindow):
         warning = QtWidgets.QLabel("پیکسل درشت‌تر سریع‌تر است و جزئیات کمتری نگه می‌دارد. نتیجهٔ موتور GDAL ممکن است با Esri یا Global Mapper تفاوت داشته باشد.")
         warning.setWordWrap(True)
         grid.addWidget(warning, 4, 0, 1, 3)
+        self.auto_coarsen = QtWidgets.QCheckBox("شبکهٔ بزرگ: افزایش خودکار پیکسل تا سقف انتخابی (کاهش جزئیات)")
+        self.auto_coarsen.setChecked(True)
+        grid.addWidget(self.auto_coarsen, 5, 0, 1, 3)
+        limit = QtWidgets.QSpinBox()
+        limit.setRange(1, 100)
+        limit.setValue(25)
+        self.inputs["max_grid_mcells"] = limit
+        grid.addWidget(QtWidgets.QLabel("سقف شبکهٔ هر نقطه، میلیون سلول"), 6, 0)
+        grid.addWidget(limit, 6, 1, 1, 2)
+        memory_note = QtWidgets.QLabel("برای حفظ پیکسل درخواستی، تنظیم خودکار را خاموش و سقف را افزایش دهید. شبکهٔ بزرگ حافظه و زمان بیشتری مصرف می‌کند؛ این عدد سقف مصرف RAM نیست.")
+        memory_note.setWordWrap(True)
+        grid.addWidget(memory_note, 7, 0, 1, 3)
         output, grid = self.group("خروجی", form)
         self.path_row(grid, 0, "output_dir", "پوشهٔ ذخیره", self.choose_output)
         self.inputs["output_dir"].setText(str(Path.home()/"Documents"/"FastViewshedResults"))
@@ -292,6 +304,7 @@ class FastWindow(QtWidgets.QMainWindow):
         data.update({name: widget.currentData() for name, widget in self.unit_boxes.items()})
         data["resolution_factor"] = self.resolution.currentData()
         data["merge_coverage"] = self.merge.isChecked()
+        data["auto_coarsen"] = self.auto_coarsen.isChecked()
         config = FastSettings(**data)
         config.validate()
         return config
@@ -315,7 +328,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.read_fields.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.cancel_event.clear()
-        self.log.appendPlainText("\n── تحلیل جدید با GDAL ──")
+        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 2.1 ──")
         self.status.setText("در حال پردازش…")
         self.thread = QtCore.QThread(self)
         self.worker = AnalysisWorker(config, self.cancel_event)
@@ -362,6 +375,11 @@ class FastWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot(int, object, object)
     def receive_preview(self, fid, classes, metadata):
+        # Reduce the categorical array before allocating RGBA/QImage buffers.
+        # Otherwise a 40-million-cell result needs several extra 160 MB copies
+        # on the GUI thread merely to build a small preview.
+        stride = max(1, (max(classes.shape)+1399)//1400)
+        classes = classes[::stride, ::stride]
         rgba = np.full((*classes.shape, 4), 255, dtype=np.uint8)
         rgba[classes == 0] = (221, 72, 77, 255)
         rgba[classes == 1] = (42, 184, 111, 255)

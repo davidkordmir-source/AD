@@ -17,7 +17,6 @@ gdal.UseExceptions()
 ogr.UseExceptions()
 osr.UseExceptions()
 
-MAX_GRID_CELLS = 25_000_000
 CLASS_NAMES = {0: "hidden", 1: "visible", 2: "unknown"}
 
 
@@ -166,6 +165,43 @@ def local_resolution(source, source_sr, local_sr, lon, lat):
     return size
 
 
+def grid_plan(radius, requested_cell, max_cells, auto_coarsen, fid, log):
+    """Bound the actual odd, padded grid; never alter the requested radius."""
+    def dimensions(cell):
+        n = int(math.ceil(radius/cell))+3
+        return n, 2*n+1
+
+    n, size = dimensions(requested_cell)
+    if size*size <= max_cells:
+        return requested_cell, n, size
+    maximum_side = math.isqrt(max_cells)
+    if maximum_side % 2 == 0:
+        maximum_side -= 1
+    radius_pixels = (maximum_side-1)//2-3
+    if radius_pixels < 2:
+        raise ValueError("سقف شبکه برای تحلیل کافی نیست.")
+    minimum_cell = math.nextafter(radius/radius_pixels, math.inf)
+    if not auto_coarsen:
+        multiplier = minimum_cell/requested_cell
+        raise ValueError(
+            f"FID={fid}: شبکهٔ درخواستی {size}×{size} ({size*size/1e6:.2f} میلیون سلول) "
+            f"از سقف {max_cells/1e6:g} میلیون بیشتر است. "
+            f"اندازهٔ پیکسل نهایی باید حداقل {math.ceil(minimum_cell*1e6)/1e6:.6f} متر "
+            f"({multiplier:.3f} برابر مقدار فعلی) باشد؛ تنظیم خودکار پیکسل را روشن کنید "
+            "یا سقف شبکه را با توجه به RAM افزایش دهید.")
+    cell = minimum_cell
+    n, adjusted_size = dimensions(cell)
+    # Account for rounding at integer boundaries on all supported platforms.
+    while adjusted_size*adjusted_size > max_cells:
+        cell = math.nextafter(cell, math.inf)
+        n, adjusted_size = dimensions(cell)
+    log(f"نقطه {fid}: تنظیم خودکار برای سقف {max_cells/1e6:g} میلیون سلول؛ "
+        f"پیکسل از {requested_cell:.6g} به {cell:.6g} متر افزایش یافت "
+        f"(کاهش جزئیات مکانی)؛ شبکه {size}×{size} → {adjusted_size}×{adjusted_size}. "
+        "شعاع و آزیموت تغییر نکردند.")
+    return cell, n, adjusted_size
+
+
 def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     fid, lon, lat, start, end = row
     local_sr = spatial_ref(f"+proj=aeqd +lat_0={lat:.12f} +lon_0={lon:.12f} +datum=WGS84 +units=m +no_defs")
@@ -173,10 +209,8 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     radius = cfg.radius_m
     if radius < 2*cell:
         raise ValueError(f"FID={fid}: شعاع باید حداقل دو پیکسل باشد؛ اندازهٔ پیکسل {cell:g} متر است.")
-    n = int(math.ceil(radius/cell))+3
-    size = 2*n+1
-    if size*size > MAX_GRID_CELLS:
-        raise ValueError(f"FID={fid}: شبکه {size}×{size} بیش از حد بزرگ است؛ شعاع را کم یا اندازهٔ پیکسل را بیشتر کنید.")
+    cell, n, size = grid_plan(radius, cell, cfg.max_grid_mcells*1_000_000,
+                              cfg.auto_coarsen, fid, log)
     edge = (n+0.5)*cell
     log(f"نقطه {fid}: پیکسل {cell:.3f} m | شبکه {size}×{size}")
 
@@ -203,28 +237,40 @@ def local_result(source, source_sr, row, cfg, log, progress, cancelled):
     input_band = source.GetRasterBand(1)
     scale = input_band.GetScale()
     offset = input_band.GetOffset()
-    heights[valid] = ((heights[valid]*(1 if scale is None else scale)
-                      +(0 if offset is None else offset))*UNITS[cfg.dem_z_unit])
+    # Work in place and release native rasters as soon as possible. Large grids
+    # otherwise retain several full copies across both visibility passes.
+    np.multiply(heights, 1 if scale is None else scale, out=heights)
+    np.add(heights, 0 if offset is None else offset, out=heights)
+    np.multiply(heights, UNITS[cfg.dem_z_unit], out=heights)
     heights[~valid] = 0
     gt = warped.GetGeoTransform()
     projection = local_sr.ExportToWkt()
+    band = warped = None
     terrain = raster_dataset(heights, gt, projection)
+    del heights
     # AEQD preserves radial distances and true bearings from its central observer.
     maximum = radius+2*cell
     log(f"نقطه {fid}: محاسبهٔ دیدپذیری با موتور GDAL")
     result = viewshed(terrain, cfg, maximum, cfg.receiver*UNITS[cfg.receiver_unit],
                       cfg.target*UNITS[cfg.target_unit], 1-cfg.refraction, callback(.25, .65))
-    classes = result.GetRasterBand(1).ReadAsArray().astype(np.uint8)
+    terrain = None
+    classes = result.GetRasterBand(1).ReadAsArray()
     result_gt = result.GetGeoTransform()
+    result = None
     # GDAL does not propagate DEM gaps. A separate opaque-gap pass marks
     # downstream cells conservatively as unknown rather than falsely visible.
     if not valid.all():
         log(f"نقطه {fid}: بررسی مسیرهای عبوری از قسمت‌های فاقد DEM")
-        gaps = raster_dataset(np.where(valid, 0.0, 1e9).astype(np.float32), gt, projection)
+        gap_heights = np.zeros(valid.shape, dtype=np.float32)
+        gap_heights[~valid] = 1e9
+        gaps = raster_dataset(gap_heights, gt, projection)
+        del gap_heights
         certainty = viewshed(gaps, cfg, maximum, 0, 0, 0, callback(.65, .8))
-        if certainty.GetGeoTransform() != result_gt or (certainty.RasterXSize, certainty.RasterYSize) != (result.RasterXSize, result.RasterYSize):
+        gaps = None
+        if certainty.GetGeoTransform() != result_gt or (certainty.RasterXSize, certainty.RasterYSize) != (classes.shape[1], classes.shape[0]):
             raise RuntimeError("شبکهٔ کنترل NoData با نتیجه هم‌تراز نیست.")
         clear = certainty.GetRasterBand(1).ReadAsArray() == 1
+        certainty = None
         off_col = int(round((result_gt[0]-gt[0])/cell))
         off_row = int(round((gt[3]-result_gt[3])/cell))
         valid_view = valid[off_row:off_row+classes.shape[0], off_col:off_col+classes.shape[1]]
@@ -321,6 +367,10 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
                                   seconds=time.perf_counter()-local_start))
             visibility_layer.SyncToDisk()
             sector_layer.SyncToDisk()
+            # Do not retain the previous observer's raster while constructing
+            # the next grid. Qt receives its own preview array.
+            layer = polygons = raster = None
+            del classes
         visibility_layer = sector_layer = None
         visibility_ds = sector_ds = None
         if cfg.merge_coverage:
@@ -339,7 +389,8 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             coverage_layer = coverage_ds = None
             write_qml(folder/"coverage.shp")
         write_qml(folder/"visibility.shp")
-        report = dict(status="completed", engine=gdal.VersionInfo("--version"), method="GDAL GVM_Edge / Wang",
+        report = dict(status="completed", application_version="2.1.0",
+                      engine=gdal.VersionInfo("--version"), method="GDAL GVM_Edge / Wang",
                       settings=asdict(cfg), observers=summaries, seconds=time.perf_counter()-started,
                       output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES,
                       notes=["Per-observer AEQD grids preserve radial distances and true bearings.",

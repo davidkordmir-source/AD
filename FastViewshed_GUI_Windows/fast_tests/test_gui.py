@@ -7,6 +7,9 @@ from pathlib import Path
 import time
 import faulthandler
 import unittest
+from unittest.mock import patch
+
+import numpy as np
 
 from PySide6 import QtCore, QtTest, QtWidgets
 
@@ -65,6 +68,12 @@ class GuiTests(unittest.TestCase):
         window.inputs["radius"].setValue(700)
         window.unit_boxes["radius_unit"].setCurrentIndex(window.unit_boxes["radius_unit"].findData("m"))
         window.inputs["cell_size"].setValue(10)
+        self.assertTrue(window.settings().auto_coarsen)
+        self.assertEqual(window.settings().max_grid_mcells, 25)
+        window.auto_coarsen.setChecked(False)
+        window.inputs["max_grid_mcells"].setValue(40)
+        self.assertFalse(window.settings().auto_coarsen)
+        self.assertEqual(window.settings().max_grid_mcells, 40)
         QtTest.QTest.mouseClick(window.run_button, QtCore.Qt.LeftButton)
         self.wait_for_analysis()
         self.assertIsNone(window.thread, msg=window.log.toPlainText())
@@ -98,6 +107,18 @@ class GuiTests(unittest.TestCase):
         self.window.start_analysis()
         self.assertIsNone(self.window.thread)
         self.assertIn("ابتدا", self.window.log.toPlainText())
+
+    def test_large_preview_reduces_array_before_allocating_color_buffers(self):
+        # Broadcasted terrain occupies one byte, so this regression itself
+        # does not need a large test allocation.
+        classes = np.broadcast_to(np.uint8(1), (5725, 5725))
+        with patch("fast_viewshed.gui.np.full", wraps=np.full) as allocate:
+            self.window.receive_preview(0, classes, {"cell": 10})
+        shape = allocate.call_args.args[0]
+        self.assertLessEqual(max(shape[:2]), 1400)
+        self.assertEqual(shape[2], 4)
+        self.assertFalse(self.window.preview_images[0].isNull())
+        self.assertEqual(self.window.preview_selector.count(), 1)
 
 
 if __name__ == "__main__":

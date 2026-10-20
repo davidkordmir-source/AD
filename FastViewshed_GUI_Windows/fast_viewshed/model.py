@@ -29,6 +29,8 @@ class FastSettings:
     output_epsg: int = 0
     refraction: float = 0.13
     merge_coverage: bool = False
+    max_grid_mcells: int = 25
+    auto_coarsen: bool = True
 
     @property
     def radius_m(self):
@@ -53,3 +55,7 @@ class FastSettings:
             raise ValueError("ضریب تفکیک نامعتبر است.")
         if self.output_epsg < 0:
             raise ValueError("EPSG نامعتبر است.")
+        if isinstance(self.max_grid_mcells, bool) or not isinstance(self.max_grid_mcells, int) or not 1 <= self.max_grid_mcells <= 100:
+            raise ValueError("سقف شبکه باید عدد صحیح از ۱ تا ۱۰۰ میلیون سلول باشد.")
+        if not isinstance(self.auto_coarsen, bool):
+            raise ValueError("تنظیم خودکار پیکسل باید روشن یا خاموش باشد.")

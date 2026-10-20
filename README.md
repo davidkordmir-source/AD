@@ -1,6 +1,12 @@
-# برنامهٔ GUI دیدپذیری قطاعی
+# برنامهٔ GUI دیدپذیری قطاعی — نسخهٔ ۲٫۱
 
 [**دریافت بستهٔ کامل ویندوز (ZIP)**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_GUI_Windows.zip)
+
+[**دریافت اصلاحیهٔ ۲٫۱ برای نصب قبلی (فقط ۱۶ کیلوبایت)**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Update_v2.1.zip)
+
+برای به‌روزرسانی، برنامه را ببندید و فقط `FastViewshed_GUI.py` داخل اصلاحیه را کنار همان `Run_Fast_Viewshed.bat` قبلی جایگزین کنید. نصب دوبارهٔ کتابخانه‌ها لازم نیست. عنوان پنجره باید **Fast Sector Viewshed 2.1** باشد.
+
+خطای شبکهٔ بیش از ۲۵ میلیون سلول اصلاح شده است: تنظیم خودکار روشن، در صورت نیاز پیکسل را درشت‌تر می‌کند و جزئیات را کاهش می‌دهد. برای حفظ اندازهٔ پیکسل شبکهٔ گزارش‌شدهٔ ۵۷۲۵×۵۷۲۵، تنظیم خودکار را خاموش و سقف شبکه را ۴۰ میلیون بگذارید؛ RAM بیشتری لازم است. هر دو حالت روی دادهٔ مصنوعی با همین اندازهٔ شبکه و خروجی Shapefile آزموده شده‌اند.
 
 بسته در شاخهٔ `fast-viewshed-gui` و پوشهٔ `downloads` قرار دارد. در صفحهٔ فایل ZIP، دکمهٔ **Download raw file** نیز آن را دریافت می‌کند.
 

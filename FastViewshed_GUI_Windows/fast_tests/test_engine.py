@@ -173,6 +173,24 @@ class FastTerrainTests(unittest.TestCase):
         self.assertTrue((folders[0]/"FAILED.txt").exists())
         self.assertFalse((folders[0]/"run.json").exists())
 
+    def test_oversized_grid_auto_adjusts_and_writes_actual_pixel_size(self):
+        folder, report = self.run_case(self.inputs(), cell_size=1, max_grid_mcells=1)
+        actual_cell = report["observers"][0]["cell_m"]
+        self.assertGreater(actual_cell, 1)
+        self.assertLess(actual_cell, 2)
+        self.assertEqual(report["settings"]["cell_size"], 1)
+        self.assertTrue(report["settings"]["auto_coarsen"])
+        self.assertEqual(self.statuses(folder, 500355, 3950505), [1])
+        ds = ogr.Open(str(folder/"sectors.shp"))
+        f = ds.GetLayer(0).GetNextFeature()
+        self.assertAlmostEqual(f.GetField("radius_m"), 700)
+        self.assertAlmostEqual(f.GetField("cell_m"), actual_cell, places=7)
+
+    def test_large_grid_preserves_requested_pixel_when_auto_is_off(self):
+        folder, report = self.run_case(self.inputs(), cell_size=1, max_grid_mcells=2, auto_coarsen=False)
+        self.assertEqual(report["observers"][0]["cell_m"], 1)
+        self.assertEqual(self.statuses(folder, 500355, 3950505), [1])
+
 
 if __name__ == "__main__":
     unittest.main()

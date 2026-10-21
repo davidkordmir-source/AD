@@ -60,7 +60,7 @@ class AnalysisWorker(QtCore.QObject):
 class FastWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fast Sector Viewshed 3.1 | دیدپذیری قطاعی مستقل")
+        self.setWindowTitle("Fast Sector Viewshed 3.2 | دیدپذیری قطاعی آفلاین")
         self.resize(1260, 860)
         self.setMinimumSize(940, 650)
         self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -447,7 +447,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.read_fields.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.cancel_event.clear()
-        self.log.appendPlainText("\n── تحلیل جدید با GDAL | نسخهٔ 3.1 ──")
+        self.log.appendPlainText("\n── تحلیل آفلاین با GDAL | نسخهٔ 3.2 ──")
         self.status.setText("در حال پردازش…")
         self.thread = QtCore.QThread(self)
         self.worker = AnalysisWorker(config, self.cancel_event)

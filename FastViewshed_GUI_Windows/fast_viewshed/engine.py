@@ -19,6 +19,8 @@ from .model import FastSettings, ObserverRecord, Cancelled, azimuth, angle_range
 gdal.UseExceptions()
 ogr.UseExceptions()
 osr.UseExceptions()
+gdal.SetConfigOption("PROJ_NETWORK", "OFF")
+osr.SetPROJEnableNetwork(False)
 
 CLASS_NAMES = {0: "hidden", 1: "visible", 2: "unknown"}
 
@@ -31,7 +33,10 @@ def spatial_ref(definition):
 
 
 def inspect_shape(path):
-    ds = ogr.Open(str(path), 0)
+    if not Path(path).is_file():
+        raise ValueError("فایل نقاط باید روی دستگاه موجود باشد؛ دریافت اینترنتی ورودی پشتیبانی نمی‌شود.")
+    ds = gdal.OpenEx(str(path), gdal.OF_VECTOR | gdal.OF_READONLY,
+                     allowed_drivers=["ESRI Shapefile", "GeoJSON"])
     if ds is None:
         raise ValueError("فایل نقاط باز نشد؛ برای Shapefile فایل‌های SHP، SHX و DBF را بررسی کنید.")
     layer = ds.GetLayer(0)
@@ -54,7 +59,8 @@ def load_observer_records(cfg):
     for field in (cfg.observer_field, cfg.receiver_field, cfg.name_field):
         if field and field not in metadata["fields"]:
             raise ValueError("ستون انتخاب‌شده در فایل نقاط وجود ندارد: "+field)
-    ds = ogr.Open(cfg.points, 0)
+    ds = gdal.OpenEx(cfg.points, gdal.OF_VECTOR | gdal.OF_READONLY,
+                     allowed_drivers=["ESRI Shapefile", "GeoJSON"])
     layer = ds.GetLayer(0)
     sr = layer.GetSpatialRef().Clone()
     sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
@@ -385,7 +391,10 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     started = time.perf_counter()
     rows, input_sr = load_observer_records(cfg)
     output_sr = spatial_ref(f"EPSG:{cfg.output_epsg}") if cfg.output_epsg else input_sr
-    source = gdal.OpenEx(cfg.dem, gdal.OF_RASTER | gdal.OF_READONLY)
+    if not Path(cfg.dem).is_file():
+        raise ValueError("DEM باید فایل محلی موجود باشد؛ برنامه DEM را از اینترنت دریافت نمی‌کند.")
+    source = gdal.OpenEx(cfg.dem, gdal.OF_RASTER | gdal.OF_READONLY,
+                         allowed_drivers=["GTiff", "HFA", "AAIGrid", "USGSDEM", "SRTMHGT", "EHdr", "ENVI", "XYZ"])
     if source is None or source.RasterCount != 1:
         raise ValueError("DEM باید یک رستر ارتفاعی تک‌باند باشد.")
     if not source.GetProjection():
@@ -535,7 +544,7 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             "run.json تنظیمات و شمارش و مساحت کلاس‌ها را برای بررسی ذخیره می‌کند.\n"
             "مطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n",
             encoding="utf-8")
-        report = dict(status="completed", application_version="3.1.0",
+        report = dict(status="completed", application_version="3.2.0", offline=True,
                       engine=gdal.VersionInfo("--version"), method="GDAL GVM_Edge / Wang",
                       settings=asdict(cfg), observers=summaries, seconds=time.perf_counter()-started,
                       output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES,

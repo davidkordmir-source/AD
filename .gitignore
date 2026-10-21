@@ -1,0 +1,4 @@
+**/__pycache__/
+**/_build/
+**/runtime_offline/
+**/OFFLINE_CHECK.json

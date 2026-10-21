@@ -1,29 +1,15 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-if not exist "%~dp0conda_path.txt" (
-    echo Run Install_Fast_Viewshed.bat first.
-    pause
-    exit /b 1
-)
-set /p SV_CONDA=<"%~dp0conda_path.txt"
-set "SV_CONDA=%SV_CONDA:"=%"
-set "PYTHONHOME="
-set "PYTHONPATH="
-set "QT_PLUGIN_PATH="
-set "QT_QPA_PLATFORM_PLUGIN_PATH="
-set "GDAL_DATA="
-set "PROJ_LIB="
-set "PROJ_DATA="
-call "%SV_CONDA%" activate "%~dp0runtime"
-if errorlevel 1 (
-    echo Could not activate the independent runtime.
-    pause
-    exit /b 1
-)
-"%CONDA_PREFIX%\pythonw.exe" "%~dp0FastViewshed_GUI.py"
-if errorlevel 1 (
-    echo Startup failed. Logs are in %%TEMP%%\FastViewshed_logs
-    pause
-)
-endlocal
+call "%~dp0Install_Fast_Viewshed.bat" --quiet
+if errorlevel 1 goto failed
+call "%~dp0_Activate_Offline.bat"
+if errorlevel 1 goto failed
+"%SV_RUNTIME%\pythonw.exe" "%~dp0FastViewshed_GUI.py"
+if errorlevel 1 goto failed
+exit /b 0
+:failed
+echo Startup failed. Keep this message and OFFLINE_CHECK.json for troubleshooting.
+echo Startup logs are in %%TEMP%%\FastViewshed_logs
+pause
+exit /b 1

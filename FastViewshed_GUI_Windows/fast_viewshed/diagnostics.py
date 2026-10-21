@@ -9,6 +9,9 @@ import tempfile
 import traceback
 
 
+# Set this before native GIS imports in the standalone entry point.
+os.environ["PROJ_NETWORK"] = "OFF"
+
 _fast_log_stream = None
 _fast_log_path = None
 

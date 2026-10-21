@@ -1,0 +1,63 @@
+name: Build and verify complete offline Windows GUI
+on:
+  push:
+    branches: [fast-viewshed-gui]
+    paths: ['FastViewshed_GUI_Windows/**', '.github/workflows/build-offline-windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: offline-windows-release
+  cancel-in-progress: false
+jobs:
+  offline-windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: FastViewshed_GUI_Windows
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          activate-environment: pack-tools
+          python-version: '3.12'
+          channels: conda-forge
+          channel-priority: strict
+          conda-remove-defaults: true
+      - name: Install build tools and native Windows dependencies
+        shell: bash -el {0}
+        run: |
+          conda install -n pack-tools conda-pack setuptools -y
+          conda env create --prefix "$PWD/_build/runtime_build" --file environment-fast.yml -y
+      - name: Pack private interpreter, GIS and Qt dependencies
+        shell: bash -el {0}
+        run: python scripts/build_offline_windows.py --runtime _build/runtime_build --output _build/dist --revision "$GITHUB_SHA"
+      - name: Install and test real GUI with outbound network blocked
+        run: ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip -Output _build/dist
+      - name: Finalize tested artifact
+        shell: bash -el {0}
+        run: python scripts/finalize_offline_release.py _build/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FastViewshed-Offline-Windows-x64
+          compression-level: 0
+          path: |
+            FastViewshed_GUI_Windows/_build/dist/*.zip
+            FastViewshed_GUI_Windows/_build/dist/*.json
+            FastViewshed_GUI_Windows/_build/dist/SHA256SUMS.txt
+      - name: Publish complete offline package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = 'v3.2.0-offline'
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --target '${{ github.sha }}' --title 'Fast Viewshed 3.2.0 - complete offline Windows x64' --notes-file RELEASE_OFFLINE.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
+          }
+          gh release upload $tag _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip _build/dist/SHA256SUMS.txt _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/RUNTIME_MANIFEST.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed.' }

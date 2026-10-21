@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import traceback
+os.environ['PROJ_NETWORK'] = 'OFF'
 _fast_log_stream = None
 _fast_log_path = None
 
@@ -216,6 +217,8 @@ try:
     gdal.UseExceptions()
     ogr.UseExceptions()
     osr.UseExceptions()
+    gdal.SetConfigOption('PROJ_NETWORK', 'OFF')
+    osr.SetPROJEnableNetwork(False)
     CLASS_NAMES = {0: 'hidden', 1: 'visible', 2: 'unknown'}
 
     def spatial_ref(definition):
@@ -225,7 +228,9 @@ try:
         return sr
 
     def inspect_shape(path):
-        ds = ogr.Open(str(path), 0)
+        if not Path(path).is_file():
+            raise ValueError('فایل نقاط باید روی دستگاه موجود باشد؛ دریافت اینترنتی ورودی پشتیبانی نمی\u200cشود.')
+        ds = gdal.OpenEx(str(path), gdal.OF_VECTOR | gdal.OF_READONLY, allowed_drivers=['ESRI Shapefile', 'GeoJSON'])
         if ds is None:
             raise ValueError('فایل نقاط باز نشد؛ برای Shapefile فایل\u200cهای SHP، SHX و DBF را بررسی کنید.')
         layer = ds.GetLayer(0)
@@ -246,7 +251,7 @@ try:
         for field in (cfg.observer_field, cfg.receiver_field, cfg.name_field):
             if field and field not in metadata['fields']:
                 raise ValueError('ستون انتخاب\u200cشده در فایل نقاط وجود ندارد: ' + field)
-        ds = ogr.Open(cfg.points, 0)
+        ds = gdal.OpenEx(cfg.points, gdal.OF_VECTOR | gdal.OF_READONLY, allowed_drivers=['ESRI Shapefile', 'GeoJSON'])
         layer = ds.GetLayer(0)
         sr = layer.GetSpatialRef().Clone()
         sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
@@ -530,7 +535,9 @@ try:
         started = time.perf_counter()
         rows, input_sr = load_observer_records(cfg)
         output_sr = spatial_ref(f'EPSG:{cfg.output_epsg}') if cfg.output_epsg else input_sr
-        source = gdal.OpenEx(cfg.dem, gdal.OF_RASTER | gdal.OF_READONLY)
+        if not Path(cfg.dem).is_file():
+            raise ValueError('DEM باید فایل محلی موجود باشد؛ برنامه DEM را از اینترنت دریافت نمی\u200cکند.')
+        source = gdal.OpenEx(cfg.dem, gdal.OF_RASTER | gdal.OF_READONLY, allowed_drivers=['GTiff', 'HFA', 'AAIGrid', 'USGSDEM', 'SRTMHGT', 'EHdr', 'ENVI', 'XYZ'])
         if source is None or source.RasterCount != 1:
             raise ValueError('DEM باید یک رستر ارتفاعی تک\u200cباند باشد.')
         if not source.GetProjection():
@@ -641,7 +648,7 @@ try:
             for filename in primary_outputs:
                 write_qml(folder / filename, visible_only=True)
             (folder / 'README_RESULTS_FA.txt').write_text('فایل\u200cهای اصلی قابل\u200cدید:\n' + '\n'.join(primary_outputs) + '\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nدر حالت خروجی جدا، لایه\u200cهای کمکی visibility و sectors داخل پوشهٔ details هستند.\nستون name نام انتخابی نقطه است؛ در صورت نبود نام، FID استفاده می\u200cشود.\nدر نام فایل\u200cهای مستقل، عدد پایانی ارتفاع فرستنده/آبجکت در محل نقطه، بر حسب متر است.\nدر ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\nsectors.shp فقط مرز شعاع و آزیموت تحلیل است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم.\nنمایش همهٔ این کلاس\u200cها با یک نماد، شکل قطاع کامل را نشان می\u200cدهد.\nدر صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\nبرای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع فرستنده در نقطه و گیرنده روی سلول\u200cها، واحدها، شعاع، آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\nrun.json تنظیمات و شمارش و مساحت کلاس\u200cها را برای بررسی ذخیره می\u200cکند.\nمطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n', encoding='utf-8')
-            report = dict(status='completed', application_version='3.1.0', engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=None if cfg.separate_outputs else 'visible.shp', primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            report = dict(status='completed', application_version='3.2.0', offline=True, engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=None if cfg.separate_outputs else 'visible.shp', primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
             log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nتعداد شیپ\u200cفایل اصلی قابل\u200cدید: {len(primary_outputs)}")
@@ -705,7 +712,7 @@ try:
 
         def __init__(self):
             super().__init__()
-            self.setWindowTitle('Fast Sector Viewshed 3.1 | دیدپذیری قطاعی مستقل')
+            self.setWindowTitle('Fast Sector Viewshed 3.2 | دیدپذیری قطاعی آفلاین')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -1072,7 +1079,7 @@ try:
             self.read_fields.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.cancel_event.clear()
-            self.log.appendPlainText('\n── تحلیل جدید با GDAL | نسخهٔ 3.1 ──')
+            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.2 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)

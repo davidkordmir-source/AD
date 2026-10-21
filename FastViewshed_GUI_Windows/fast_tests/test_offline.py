@@ -21,7 +21,7 @@ class OfflineTests(unittest.TestCase):
                 inspect_shape('https://example.org/stations.geojson')
             opening.assert_not_called()
 
-    def test_remote_dem_rejected_without_native_open(self):
+    def test_remote_dem_rejected_without_remote_native_open(self):
         with tempfile.TemporaryDirectory() as output:
             config = FastSettings(str(ROOT/'demo_fast/demo_points.shp'),
                                   '/vsicurl/https://example.org/elevation.tif',

@@ -1,4 +1,8 @@
-"""Build full Windows source distribution and the one-file 3.1 update."""
+"""Build SOURCE-ONLY archives; complete offline runtime is built on Windows.
+
+Use build_offline_windows.py / the Windows GitHub workflow for the runnable
+offline package. These source archives deliberately do not bundle native DLLs.
+"""
 
 import hashlib
 from pathlib import Path
@@ -7,34 +11,14 @@ from zipfile import ZipFile, ZIP_DEFLATED
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT/"dist"
 PREFIX = "FastViewshed_GUI_Windows/"
-UPDATE = """به‌روزرسانی Fast Sector Viewshed به نسخهٔ ۳٫۱
+UPDATE = """Fast Sector Viewshed 3.2 — SOURCE ONLY
 
-برنامه را ببندید؛ FastViewshed_GUI.py داخل اصلاحیه را کنار همان
-Run_Fast_Viewshed.bat قبلی جایگزین کنید. نصب مجدد کتابخانه‌ها لازم نیست.
-عنوان پنجرهٔ جدید باید Fast Sector Viewshed 3.1 باشد.
+This small update contains application source, not Python/GDAL/Qt binaries.
+An existing working runtime is required. To install on an offline computer,
+use FastViewshed_Offline_Windows_x64_v3.2.0.zip from the GitHub release.
 
-امکانات جدید:
-۱. ارتفاع فرستنده و ارتفاع گیرنده، هر کدام مستقل از ستون عددی یا تکست.
-   چک‌باکس «فرستنده از ستون» یا «گیرنده از ستون» را بزنید و ستون را انتخاب
-   کنید. بدون تیک، مقدار ثابت استفاده می‌شود. واحد از کمبوباکس همان ارتفاع
-   گرفته می‌شود. متن‌هایی مانند ۱۰۰، 2.5 و 1e2 پذیرفته می‌شوند.
-۲. ستون نام نقطه برای name قابل انتخاب است. نام فارسی حفظ می‌شود؛ نام
-   خالی یا نبود ستون نام با FID جایگزین می‌شود.
-۳. چک‌باکس «برای هر نقطه یک شیپ‌فایل قابل‌دید مستقل»:
-   خاموش: همهٔ نقاط در visible.shp، مثل نسخهٔ قبل.
-   روشن: یک فایل اصلی برای هر نقطه، مثلاً Stations-SiteA-100.shp.
-   الگو: نام فایل مرجع-نام نقطه-ارتفاع فرستنده/آبجکت بر حسب متر.
-   نام تکراری با FID متمایز می‌شود؛ فایل‌ها روی هم نوشته نمی‌شوند.
-۴. در حالت مستقل، لایه‌های کمکی داخل details هستند و primary_outputs
-   در run.json فهرست فایل‌های اصلی را نگه می‌دارد.
-
-برای همهٔ نقاط، FID را روی منفی یک / همهٔ نقاط بگذارید. دکمهٔ تنظیمات
-مرجع Global Mapper، FID=1 و ارتفاع ثابت ۱۰۰/۲ را اعمال می‌کند؛ اگر از آن
-استفاده کردید، انتخاب ستون ارتفاع را پس از آن انجام دهید.
-
-نگاشت پذیرفته‌شدهٔ نسخهٔ ۳٫۰ حفظ شده است: فرستنده در محل نقطه و گیرنده
-روی سلول‌های اطراف؛ هر دو ارتفاع نسبت به DEM هستند. عدد پایانی نام فایل
-ارتفاع افزودهٔ فرستنده بالای DEM است، نه ارتفاع کل آن نسبت به سطح مبنا.
+The complete offline bundle includes Python and native dependencies and uses
+only local extraction at the destination. Do not use an older online installer.
 """
 
 
@@ -45,10 +29,13 @@ def main():
              "environment-fast.yml", "environment-fast_COPY.txt", "README_FAST_FA.md", "run_fast_gui.py",
              "sector_viewshed/core.py", "sector_viewshed/__init__.py",
              "scripts/build_fast_standalone.py", "scripts/benchmark_fast.py",
-             "scripts/validate_large_grid.py", "scripts/package_fast.py"]
+             "scripts/validate_large_grid.py", "scripts/package_fast.py",
+             "Check_Offline.bat", "_Activate_Offline.bat", "_Finalize_Offline.bat", "RELEASE_OFFLINE.md",
+             "scripts/install_offline.ps1", "scripts/check_offline.py", "scripts/build_offline_windows.py",
+             "scripts/test_offline_windows.ps1", "scripts/finalize_offline_release.py"]
     for pattern in ("fast_viewshed/*.py", "fast_tests/test_*.py", "demo_fast/*"):
         files.extend(str(p.relative_to(ROOT)) for p in sorted(ROOT.glob(pattern)) if p.is_file())
-    full = DIST/"FastViewshed_GUI_Windows.zip"
+    full = DIST/"FastViewshed_Source_v3.2.0.zip"
     with ZipFile(full.with_suffix(".tmp"), "w", ZIP_DEFLATED) as z:
         for name in files:
             if name.endswith(".bat"):
@@ -62,10 +49,10 @@ def main():
             path = ROOT/"fast-test-results"/screenshot
             if path.exists():
                 z.write(path, PREFIX+screenshot)
-        z.writestr(PREFIX+"README.md", "# Fast Sector Viewshed 3.1\n\nPrimary output: visible.shp in combined mode; reference-name-height.shp per point in separate mode. Heights may come from numeric or text attributes and the selected point name is stored in the name field. visibility.shp contains all classes; sectors.shp contains analysis bounds.\n\nRead README_FAST_FA.md for installation, update and large-grid settings.\n\nInstall Miniforge if needed, then run Install_Fast_Viewshed.bat once and Run_Fast_Viewshed.bat to open the GUI.\n\nThis is a Python/Qt source GUI package. Windows installation is not yet verified on Windows. Numerical equivalence to Global Mapper on the user DEM is not established.\n")
+        z.writestr(PREFIX+"README.md", "# Fast Sector Viewshed 3.2.0 — SOURCE ONLY\n\nThis archive contains source code and synthetic demo data. It does not contain a Python runtime or native dependencies and is NOT the complete offline installation.\n\nFor a self-contained offline installation, download FastViewshed_Offline_Windows_x64_v3.2.0.zip from https://github.com/davidkordmir-source/AD/releases/tag/v3.2.0-offline .\n\nOffline builds are produced by scripts/build_offline_windows.py on Windows and verified with Windows Firewall blocking the bundled interpreter.\n")
         z.writestr(PREFIX+"UPDATE_FA.txt", UPDATE)
     full.with_suffix(".tmp").replace(full)
-    patch = DIST/"FastViewshed_Update_v3.1.zip"
+    patch = DIST/"FastViewshed_Source_Update_v3.2.0.zip"
     with ZipFile(patch, "w", ZIP_DEFLATED) as z:
         z.write(ROOT/"FastViewshed_GUI.py", "FastViewshed_GUI.py")
         z.writestr("UPDATE_FA.txt", UPDATE)

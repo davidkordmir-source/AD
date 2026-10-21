@@ -73,6 +73,44 @@ def main():
             ds = None
         assert covered == [True, False], covered
 
+        # Exercise the shipped record-skipping behavior with real native SHPs.
+        ds = ogr.Open(str(points), 1)
+        layer = ds.GetLayer(0)
+        feature = layer.GetFeature(0)
+        feature.SetFieldNull("tx")
+        layer.SetFeature(feature)
+        feature = layer = ds = None
+        mixed = Path(application["run_fast"](config, log=lambda _: None))
+        mixed_report = json.loads((mixed/"run.json").read_text(encoding="utf-8"))
+        assert mixed_report["succeeded_records"] == 1 and mixed_report["skipped_count"] == 1
+        assert mixed_report["skipped_records"][0]["src_id"] == 0
+        ds = ogr.Open(str(points), 1)
+        layer = ds.GetLayer(0)
+        feature = layer.GetFeature(1)
+        feature.SetFieldNull("tx")
+        layer.SetFeature(feature)
+        feature = layer = ds = None
+        from dataclasses import replace
+        for separate in (False, True):
+            empty = Path(application["run_fast"](replace(config, separate_outputs=separate), log=lambda _: None))
+            empty_report = json.loads((empty/"run.json").read_text(encoding="utf-8"))
+            assert empty_report["succeeded_records"] == 0 and empty_report["skipped_count"] == 2
+            assert empty_report["outcome"] == "no_valid_observers"
+            assert (empty/"skipped_records.csv").is_file()
+            for extension in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+                assert (empty/("visible"+extension)).is_file()
+            ds = ogr.Open(str(empty/"visible.shp"))
+            assert ds.GetLayer(0).GetFeatureCount() == 0
+            ds = None
+        # Restore both good rows for the actual Qt worker check.
+        ds = ogr.Open(str(points), 1)
+        layer = ds.GetLayer(0)
+        for fid, height in ((0, "100"), (1, "2")):
+            feature = layer.GetFeature(fid)
+            feature.SetField("tx", height)
+            layer.SetFeature(feature)
+        feature = layer = ds = None
+
         # Start the actual GUI, read fields and drive its real worker thread.
         qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         window = application["FastWindow"]()
@@ -112,7 +150,8 @@ def main():
     report = dict(status="passed", offline=True, python=sys.version, executable=str(Path(sys.executable)),
                   gdal=gdal.VersionInfo("RELEASE_NAME"), qt=QtCore.qVersion(), numpy=np.__version__,
                   proj_network=False, private_runtime=True, shapefile_round_trip=True,
-                  transmitter_receiver_regression=True, gui_worker=True, previews=2)
+                  transmitter_receiver_regression=True, gui_worker=True, previews=2, invalid_record_skipping=True,
+                  all_invalid_empty_shapefile=True, skip_report_written=True)
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("Offline runtime verification passed: GDAL, NumPy, Qt, real viewshed and GUI.")
 

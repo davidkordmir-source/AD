@@ -131,7 +131,7 @@ class PerPointTests(unittest.TestCase):
             ds = ogr.Open(str(folder/filename))
             self.assertEqual({f.GetField("name") for f in ds.GetLayer(0)}, {names[i]})
 
-    def test_invalid_text_height_reports_fid_and_field_before_writing_results(self):
+    def test_invalid_text_height_skips_only_bad_row_and_reports_fid_and_field(self):
         for bad in (None, "", "oops", "-1", "1e309"):
             with self.subTest(value=bad):
                 ds = ogr.Open(str(self.points), 1)
@@ -140,9 +140,13 @@ class PerPointTests(unittest.TestCase):
                 f.SetFieldNull("rx") if bad is None else f.SetField("rx", bad)
                 layer.SetFeature(f)
                 f = layer = ds = None
-                with self.assertRaisesRegex(ValueError, "FID=1.*rx"):
-                    self.run_case()
-                self.assertFalse(Path(self.cfg.output_dir).exists())
+                folder, report = self.run_case()
+                self.assertEqual([r["src_id"] for r in report["observers"]], [0])
+                self.assertEqual(report["skipped_count"], 1)
+                self.assertEqual(report["skipped_records"][0]["src_id"], 1)
+                self.assertEqual(report["skipped_records"][0]["field"], "rx")
+                ds = ogr.Open(str(folder/"visibility.shp"))
+                self.assertEqual({f.GetField("src_id") for f in ds.GetLayer(0)}, {0})
 
     def test_selected_fid_ignores_invalid_height_in_other_rows(self):
         ds = ogr.Open(str(self.points), 1)
@@ -159,7 +163,7 @@ class PerPointTests(unittest.TestCase):
         self.assertEqual(report["primary_outputs"][0], "points-North-30.48.shp")
         self.assertAlmostEqual(report["observers"][0]["observer_at_point_m"], 30.48)
 
-    def test_blank_name_falls_back_to_fid(self):
+    def test_selected_blank_name_is_logged_and_skipped(self):
         ds = ogr.Open(str(self.points), 1)
         layer = ds.GetLayer(0)
         f = layer.GetFeature(0)
@@ -167,8 +171,9 @@ class PerPointTests(unittest.TestCase):
         layer.SetFeature(f)
         f = layer = ds = None
         _, report = self.run_case(separate_outputs=True)
-        self.assertEqual(report["primary_outputs"][0], "points-FID_0-100.shp")
-        self.assertEqual(report["observers"][0]["name"], "FID_0")
+        self.assertEqual(report["primary_outputs"], ["points-South-2.shp"])
+        self.assertEqual(report["skipped_records"][0]["src_id"], 0)
+        self.assertEqual(report["skipped_records"][0]["field"], "label")
 
     def test_numeric_height_columns_are_accepted(self):
         points, dem = self.data.inputs(extra=[(500155, "80", "100")])

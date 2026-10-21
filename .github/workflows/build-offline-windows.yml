@@ -39,7 +39,7 @@ jobs:
         run: |
           Start-Transcript -Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt
           try {
-            ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip -Output _build/dist
+            ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.1.zip -Output _build/dist
           } finally {
             Stop-Transcript
           }
@@ -67,11 +67,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          $tag = 'v3.2.0-offline'
+          $tag = 'v3.2.1-offline'
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target ((git rev-parse HEAD).Trim()) --title 'Fast Viewshed 3.2.0 - complete offline Windows x64' --notes-file RELEASE_OFFLINE.md
+            gh release create $tag --target ((git rev-parse HEAD).Trim()) --title 'Fast Viewshed 3.2.1 - complete offline Windows x64' --notes-file RELEASE_OFFLINE.md
             if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
           }
-          gh release upload $tag _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip _build/dist/SHA256SUMS.txt _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/RUNTIME_MANIFEST.json --clobber
+          gh release upload $tag _build/dist/FastViewshed_Offline_Windows_x64_v3.2.1.zip _build/dist/SHA256SUMS.txt _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/RUNTIME_MANIFEST.json --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed.' }

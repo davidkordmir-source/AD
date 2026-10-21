@@ -1,6 +1,7 @@
 """Qt desktop GUI. GDAL runs on a worker thread; there is no ArcPy import."""
 
 import os
+import json
 import logging
 from pathlib import Path
 import sys
@@ -60,7 +61,7 @@ class AnalysisWorker(QtCore.QObject):
 class FastWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Fast Sector Viewshed 3.2 | دیدپذیری قطاعی آفلاین")
+        self.setWindowTitle("Fast Sector Viewshed 3.2.1 | دیدپذیری قطاعی آفلاین")
         self.resize(1260, 860)
         self.setMinimumSize(940, 650)
         self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -447,7 +448,7 @@ class FastWindow(QtWidgets.QMainWindow):
         self.read_fields.setEnabled(False)
         self.cancel_button.setEnabled(True)
         self.cancel_event.clear()
-        self.log.appendPlainText("\n── تحلیل آفلاین با GDAL | نسخهٔ 3.2 ──")
+        self.log.appendPlainText("\n── تحلیل آفلاین با GDAL | نسخهٔ 3.2.1 ──")
         self.status.setText("در حال پردازش…")
         self.thread = QtCore.QThread(self)
         self.worker = AnalysisWorker(config, self.cancel_event)
@@ -472,7 +473,13 @@ class FastWindow(QtWidgets.QMainWindow):
     def on_result(self, folder):
         self.result_folder = folder
         self.open_button.setEnabled(True)
-        self.status.setText("نتیجهٔ Shapefile ذخیره شد: "+folder)
+        report = json.loads((Path(folder)/"run.json").read_text(encoding="utf-8"))
+        successful, skipped = report["succeeded_records"], report["skipped_count"]
+        message = f"خروجی ذخیره شد؛ {successful} رکورد موفق، {skipped} رکورد ردشده."
+        if not successful:
+            message = "هشدار: هیچ رکورد موفقی نیست؛ visible.shp خالی ساخته شد."
+        self.status.setText(message)
+        self.log.appendPlainText(message+" گزارش: skipped_records.csv")
 
     @QtCore.Slot()
     def finished(self):

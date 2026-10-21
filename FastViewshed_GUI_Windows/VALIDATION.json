@@ -1,61 +1,20 @@
 {
-  "application": "Fast Sector Viewshed 3.2.0",
-  "tested_runtime": {
-    "python": "3.13.5",
-    "gdal": "3.10.3",
-    "numpy": "2.2.4",
-    "PySide6": "6.10.3",
-    "platform": "Linux / Qt offscreen"
-  },
-  "suite": {
-    "tests": 58,
-    "passed": 58,
-    "failed": 0,
-    "skipped": 0,
-    "seconds": 4.335
-  },
-  "new_checks": [
-    "PROJ network disabled",
-    "Remote point and DEM URLs rejected before native remote open",
-    "Network-capable VRT input rejected",
-    "Offline verification script drives real GUI and validates independent Shapefile outputs",
-    "Real per-feature text and numeric heights change computed visibility",
-    "Both observer and receiver attribute heights",
-    "Ten selected points produce exactly ten primary Shapefiles",
-    "Combined mode retains one visible.shp",
-    "Selected source names retained in name column",
-    "Persian names and UTF-8 DBF round trip",
-    "Windows-safe duplicate filenames without overwrites",
-    "Blank name fallback to FID",
-    "Invalid heights report FID and field before creating outputs",
-    "Height unit conversion and metre-based filenames",
-    "GUI checkbox, field selectors, actual worker and split files",
-    "Standalone bundle performs named independent exports"
+  "application": "Fast Sector Viewshed 3.2.1",
+  "tests": 66,
+  "passed": 66,
+  "failed": 0,
+  "tested_platform": "Linux, GDAL 3.10.3, PySide6 6.10.3",
+  "checks": [
+    "Mixed good/bad records continue",
+    "All invalid and empty input produce readable SHP sidecars",
+    "Null geometry, null fields, invalid numeric/text heights",
+    "Selected empty name skipped; FID default if no name field selected",
+    "Missing selected field logged for every affected row",
+    "DEM gap affects only corresponding point",
+    "Native write failure rolls back partial SHP records",
+    "Shared and separate outputs",
+    "GUI worker finishes all-invalid input with explicit warning",
+    "Cancellation remains cancellation"
   ],
-  "algorithm": "Accepted 3.0 transmitter-at-point / receiver-on-cells mapping is retained; underlying GDAL viewshed algorithm is unchanged.",
-  "limitations": [
-    "Windows runtime packaging and firewall verification are recorded separately by the release workflow in WINDOWS_OFFLINE_VALIDATION.json.",
-    "Split files are generated for selected FIDs; FID=-1 processes all valid input points.",
-    "The selected name must fit the Shapefile 254-byte UTF-8 field limit; long filenames are shortened without truncating valid attribute names.",
-    "No uploaded user geometry is included in this source package."
-  ],
-  "windows_verification": {
-    "status": "passed",
-    "offline": true,
-    "python": "3.12.15 | packaged by conda-forge | (main, Oct 13 2026, 16:44:09) [MSC v.1944 64 bit (AMD64)]",
-    "executable": "D:\\a\\_temp\\Offline verification with spaces\\FastViewshed_Offline_Windows_x64\\runtime_offline\\python.exe",
-    "gdal": "3.10.3",
-    "qt": "6.10.2",
-    "numpy": "2.5.4",
-    "proj_network": false,
-    "private_runtime": true,
-    "shapefile_round_trip": true,
-    "transmitter_receiver_regression": true,
-    "gui_worker": true,
-    "previews": 2,
-    "windows_firewall_outbound_blocked": true,
-    "tested_os": "Microsoft Windows Server 2022 Datacenter",
-    "install_path_contains_spaces": true
-  },
-  "offline_release_sha256": "e16fe9c6f4b954243c11c2ce9819f5cadf32e91a053cd4e5b86c3e957f903097"
+  "windows_report": "Release workflow verifies the new behavior separately with the bundled native Windows runtime."
 }

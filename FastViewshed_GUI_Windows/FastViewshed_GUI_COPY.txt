@@ -207,6 +207,7 @@ try:
     from dataclasses import asdict, replace
     from datetime import datetime
     import json
+    import csv
     import math
     from pathlib import Path
     import re
@@ -234,8 +235,6 @@ try:
         if ds is None:
             raise ValueError('فایل نقاط باز نشد؛ برای Shapefile فایل\u200cهای SHP، SHX و DBF را بررسی کنید.')
         layer = ds.GetLayer(0)
-        if ogr.GT_Flatten(layer.GetGeomType()) != ogr.wkbPoint:
-            raise ValueError('ورودی باید شیپ\u200cفایل نقطه\u200cای از نوع Point باشد.')
         sr = layer.GetSpatialRef()
         if sr is None:
             raise ValueError('شیپ\u200cفایل سیستم مختصات ندارد؛ فایل PRJ لازم است.')
@@ -244,57 +243,78 @@ try:
         fields = [definition.GetFieldDefn(i).GetName() for i in range(definition.GetFieldCount()) if definition.GetFieldDefn(i).GetType() in allowed]
         return {'fields': fields, 'count': layer.GetFeatureCount(), 'crs': sr.GetName()}
 
-    def load_observer_records(cfg):
+    def reject_record(skipped, log, fid, name, stage, exc, field=''):
+        item = dict(src_id=fid, name=name, stage=stage, field=field, error=str(exc) or type(exc).__name__, exception_type=type(exc).__name__)
+        skipped.append(item)
+        column = f'، ستون {field!r}' if field else ''
+        log(f"رد شد — FID={fid}، نام {name!r}{column}: {item['error']}")
+
+    def save_skipped_records(folder, skipped):
+        (folder / 'skipped_records.json').write_text(json.dumps(skipped, ensure_ascii=False, indent=2), encoding='utf-8')
+        with (folder / 'skipped_records.csv').open('w', encoding='utf-8-sig', newline='') as stream:
+            writer = csv.DictWriter(stream, fieldnames=['src_id', 'name', 'stage', 'field', 'error', 'exception_type'])
+            writer.writeheader()
+            writer.writerows(skipped)
+
+    def load_observer_records(cfg, skipped=None, log=lambda _: None, cancelled=lambda: False):
+        skipped = [] if skipped is None else skipped
         metadata = inspect_shape(cfg.points)
-        if cfg.start_field not in metadata['fields'] or cfg.end_field not in metadata['fields']:
-            raise ValueError('فیلدهای آزیموت را دوباره انتخاب کنید.')
-        for field in (cfg.observer_field, cfg.receiver_field, cfg.name_field):
-            if field and field not in metadata['fields']:
-                raise ValueError('ستون انتخاب\u200cشده در فایل نقاط وجود ندارد: ' + field)
+        selected_fields = [cfg.start_field, cfg.end_field, cfg.observer_field, cfg.receiver_field, cfg.name_field]
+        missing = [field for field in selected_fields if field and field not in metadata['fields']]
         ds = gdal.OpenEx(cfg.points, gdal.OF_VECTOR | gdal.OF_READONLY, allowed_drivers=['ESRI Shapefile', 'GeoJSON'])
         layer = ds.GetLayer(0)
         sr = layer.GetSpatialRef().Clone()
         sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         to_wgs = osr.CoordinateTransformation(sr, spatial_ref('EPSG:4326'))
-        rows, errors = ([], [])
+        rows, selected = ([], 0)
         for feature in layer:
+            if cancelled():
+                raise Cancelled()
             fid = feature.GetFID()
             if cfg.observer_fid >= 0 and fid != cfg.observer_fid:
                 continue
+            selected += 1
+            name, field = (f'FID_{fid}', '')
             try:
+                if missing:
+                    field = missing[0]
+                    raise ValueError('ستون انتخاب\u200cشده موجود نیست یا نوع پشتیبانی\u200cنشده دارد: ' + field)
+                if cfg.name_field:
+                    field = cfg.name_field
+                    raw_name = feature.GetField(field)
+                    if raw_name is None or not str(raw_name).strip():
+                        raise ValueError(f'ستون نام {field!r} خالی است.')
+                    name = str(raw_name).strip()
+                if len(name.encode('utf-8')) > 254:
+                    raise ValueError('نام انتخابی بیش از ۲۵۴ بایت UTF-8 است و در ستون name جا نمی\u200cشود.')
+                field = 'geometry'
                 geometry = feature.GetGeometryRef()
                 if geometry is None or geometry.IsEmpty():
                     raise ValueError('هندسهٔ خالی')
+                if ogr.GT_Flatten(geometry.GetGeometryType()) != ogr.wkbPoint:
+                    raise ValueError('هندسهٔ رکورد باید Point باشد.')
+                if not math.isfinite(geometry.GetX()) or not math.isfinite(geometry.GetY()):
+                    raise ValueError('مختصات نقطه نامتناهی یا نامعتبر است.')
                 lon, lat, _ = to_wgs.TransformPoint(geometry.GetX(), geometry.GetY())
                 if not (math.isfinite(lon) and math.isfinite(lat) and (-90 < lat < 90)):
                     raise ValueError('مختصات جغرافیایی نامعتبر')
-                start = azimuth(feature.GetField(cfg.start_field))
-                end = azimuth(feature.GetField(cfg.end_field))
+                field = cfg.start_field
+                start = azimuth(feature.GetField(field))
+                field = cfg.end_field
+                end = azimuth(feature.GetField(field))
                 heights = []
                 for field, fallback, unit in ((cfg.observer_field, cfg.observer, cfg.observer_unit), (cfg.receiver_field, cfg.receiver, cfg.receiver_unit)):
-                    try:
-                        value = number(feature.GetField(field)) if field else fallback
-                        if value < 0 or not math.isfinite(value * UNITS[unit]):
-                            raise ValueError('ارتفاع باید نامنفی و متناهی باشد.')
-                    except ValueError as exc:
-                        raise ValueError(f'ستون ارتفاع {field!r}: {exc}') from exc
+                    value = number(feature.GetField(field)) if field else fallback
+                    if value < 0 or not math.isfinite(value * UNITS[unit]):
+                        raise ValueError('ارتفاع باید نامنفی و متناهی باشد.')
                     heights.append(value)
-                raw_name = feature.GetField(cfg.name_field) if cfg.name_field else None
-                name = str(raw_name).strip() if raw_name is not None else ''
-                fallback = not name
-                if fallback:
-                    name = f'FID_{fid}'
-                if len(name.encode('utf-8')) > 254:
-                    raise ValueError('نام انتخابی بیش از ۲۵۴ بایت UTF-8 است و در ستون name شیپ\u200cفایل جا نمی\u200cشود؛ ستون کوتاه\u200cتری انتخاب کنید.')
-                rows.append(ObserverRecord((fid, lon, lat, start, end), name, *heights, fallback))
-            except (ValueError, RuntimeError) as exc:
-                errors.append(f'FID={fid}: {exc}')
-        if errors:
-            raise ValueError('ردیف نامعتبر؛ هیچ ردیفی حذف نشد:\n' + '\n'.join(errors[:30]))
-        if not rows:
-            if cfg.observer_fid >= 0:
-                raise ValueError(f'FID={cfg.observer_fid} در فایل نقاط پیدا نشد.')
-            raise ValueError('شیپ\u200cفایل خالی است.')
+                rows.append(ObserverRecord((fid, lon, lat, start, end), name, *heights, not cfg.name_field))
+            except (Cancelled, MemoryError, OSError):
+                raise
+            except Exception as exc:
+                reject_record(skipped, log, fid, name, 'input', exc, field)
+        if not selected and cfg.observer_fid >= 0:
+            reject_record(skipped, log, cfg.observer_fid, f'FID_{cfg.observer_fid}', 'selection', ValueError('FID انتخاب\u200cشده در فایل نقاط پیدا نشد.'))
         return (rows, sr)
 
     def load_observers(cfg):
@@ -369,13 +389,16 @@ try:
             layer.CreateField(field)
         return (ds, layer)
 
-    def write_feature(layer, geometry, values):
+    def write_feature(layer, geometry, values, written=None):
         for polygon in polygon_parts(geometry):
             feature = ogr.Feature(layer.GetLayerDefn())
             for name, value in values.items():
                 feature.SetField(name, value)
             feature.SetGeometry(polygon)
-            layer.CreateFeature(feature)
+            if layer.CreateFeature(feature) != ogr.OGRERR_NONE:
+                raise RuntimeError('نوشتن هندسه در شیپ\u200cفایل ناموفق بود.')
+            if written is not None:
+                written.append(feature.GetFID())
 
     def raster_dataset(array, transform, projection, nodata=None):
         dtype = gdal.GDT_Byte if array.dtype == np.uint8 else gdal.GDT_Float32
@@ -530,10 +553,59 @@ try:
                     farthest = max(farthest, math.hypot(x, y))
         return farthest
 
+    def prepare_record(source, source_sr, record, cfg, output_sr, log, progress, cancelled):
+        """Prepare one point in memory; failed geometry never reaches shared SHPs."""
+        started = time.perf_counter()
+        fid, lon, lat, start, end = record.row
+        point_cfg = replace(cfg, observer=record.observer, receiver=record.receiver)
+        classes, gt, local_sr, sector, cell = local_result(source, source_sr, record.row, point_cfg, log, lambda f: progress(f * 0.85), cancelled)
+        transform = osr.CoordinateTransformation(local_sr, output_sr)
+        output_sector = sector.Clone()
+        if output_sector.Transform(transform) != ogr.OGRERR_NONE:
+            raise ValueError('تبدیل مختصات قطاع ناموفق بود.')
+        if output_sr.IsGeographic():
+            ring = output_sector.GetGeometryRef(0)
+            if any((abs(ring.GetX(i) - ring.GetX(i - 1)) > 180 for i in range(1, ring.GetPointCount()))):
+                raise ValueError('قطاع از مرز ۱۸۰ درجه می\u200cگذرد؛ EPSG تصویرشدهٔ مناسب برای خروجی انتخاب کنید.')
+        values = dict(src_id=fid, name=record.name, az_start=start, az_end=end, radius_m=cfg.radius_m, obs_m=point_cfg.observer * UNITS[cfg.observer_unit], recv_m=point_cfg.receiver * UNITS[cfg.receiver_unit], cell_m=cell)
+        raster = raster_dataset(classes, gt, local_sr.ExportToWkt(), 255)
+        polygons = ogr.GetDriverByName('Memory').CreateDataSource('')
+        layer = polygons.CreateLayer('classes', srs=output_sr, geom_type=ogr.wkbPolygon)
+        layer.CreateField(ogr.FieldDefn('status', ogr.OFTInteger))
+        log(f'نقطه {fid}: تبدیل نتیجه به پلی\u200cگون Shapefile')
+
+        def polygon_progress(fraction, message, data):
+            progress(0.85 + 0.15 * fraction)
+            return 0 if cancelled() else 1
+        gdal.Polygonize(raster.GetRasterBand(1), raster.GetRasterBand(1).GetMaskBand(), layer, 0, callback=polygon_progress)
+        areas = {str(i): 0.0 for i in (0, 1, 2)}
+        for feature in layer:
+            if cancelled():
+                raise Cancelled()
+            status = feature.GetField('status')
+            geometry = feature.GetGeometryRef().Intersection(sector)
+            if geometry is None:
+                raise ValueError('برش هندسهٔ رکورد ناموفق بود.')
+            areas[str(status)] += geometry.GetArea()
+            if geometry.Transform(transform) != ogr.OGRERR_NONE:
+                raise ValueError('تبدیل مختصات نتیجهٔ رکورد ناموفق بود.')
+            feature.SetGeometry(geometry)
+            layer.SetFeature(feature)
+        layer.ResetReading()
+        counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
+        summary = dict(src_id=fid, name=record.name, observer_at_point_m=values['obs_m'], receiver_on_cells_m=values['recv_m'], cell_m=cell, grid_shape=list(classes.shape), counts=counts, areas_m2=areas, max_visible_distance_m=visible_radius(classes, gt), seconds=time.perf_counter() - started)
+        return (polygons, output_sector, values, summary, classes)
+
+    def rollback_features(layer, ids):
+        for fid in ids:
+            if layer.DeleteFeature(fid) != ogr.OGRERR_NONE:
+                raise RuntimeError('حذف خروجی ناقص رکورد ناموفق بود؛ خروجی قابل اعتماد نیست.')
+
     def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cancelled=lambda: False, preview=lambda *args: None):
         cfg.validate()
         started = time.perf_counter()
-        rows, input_sr = load_observer_records(cfg)
+        skipped = []
+        rows, input_sr = load_observer_records(cfg, skipped, log, cancelled)
         output_sr = spatial_ref(f'EPSG:{cfg.output_epsg}') if cfg.output_epsg else input_sr
         if not Path(cfg.dem).is_file():
             raise ValueError('DEM باید فایل محلی موجود باشد؛ برنامه DEM را از اینترنت دریافت نمی\u200cکند.')
@@ -543,91 +615,97 @@ try:
         if not source.GetProjection():
             raise ValueError('سیستم مختصات DEM مشخص نیست.')
         source_sr = spatial_ref(source.GetProjection())
-        observer_source = f'ستون {cfg.observer_field!r} با واحد {cfg.observer_unit}' if cfg.observer_field else f'{cfg.observer * UNITS[cfg.observer_unit]:g} متر'
-        receiver_source = f'ستون {cfg.receiver_field!r} با واحد {cfg.receiver_unit}' if cfg.receiver_field else f'{cfg.receiver * UNITS[cfg.receiver_unit]:g} متر'
-        log(f"تنظیمات: شعاع {cfg.radius_m:g} متر؛ ارتفاع فرستنده/ناظر در نقطه {observer_source} بالای DEM؛ ارتفاع گیرنده روی سلول\u200cها {receiver_source} بالای DEM؛ انحنای زمین {('روشن' if cfg.curvature_enabled else 'خاموش')}؛ Atmospheric Correction={cfg.atmospheric_factor:g}؛ ضریب انحنای GDAL={cfg.curvature_coefficient:.8g}؛ واحد ارتفاع DEM: {cfg.dem_z_unit}؛ ارتفاع ناموجود: {cfg.nodata_policy}")
         output = Path(cfg.output_dir).expanduser().resolve()
         output.mkdir(parents=True, exist_ok=True)
         folder = output / ('fast_viewshed_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
         folder.mkdir()
         detail_folder = folder / 'details' if cfg.separate_outputs else folder
         detail_folder.mkdir(exist_ok=True)
+        save_skipped_records(folder, skipped)
         point_filenames = separate_filenames(cfg, rows) if cfg.separate_outputs else ['visible.shp'] * len(rows)
         primary_outputs = []
         fields = [('src_id', ogr.OFTInteger64), ('name', ogr.OFTString), ('az_start', ogr.OFTReal), ('az_end', ogr.OFTReal), ('radius_m', ogr.OFTReal), ('obs_m', ogr.OFTReal), ('recv_m', ogr.OFTReal), ('cell_m', ogr.OFTReal)]
+        class_fields = fields + [('status', ogr.OFTInteger), ('state', ogr.OFTString)]
         visibility_ds = visible_ds = sector_ds = None
+        visibility_layer = visible_layer = sector_layer = None
         union_groups = {0: ogr.Geometry(ogr.wkbMultiPolygon), 1: ogr.Geometry(ogr.wkbMultiPolygon)}
         sector_union = ogr.Geometry(ogr.wkbMultiPolygon)
         summaries = []
         try:
-            visibility_ds, visibility_layer = new_shape(detail_folder / 'visibility.shp', output_sr, fields + [('status', ogr.OFTInteger), ('state', ogr.OFTString)])
+            visibility_ds, visibility_layer = new_shape(detail_folder / 'visibility.shp', output_sr, class_fields)
             if not cfg.separate_outputs:
-                visible_ds, visible_layer = new_shape(folder / 'visible.shp', output_sr, fields + [('status', ogr.OFTInteger), ('state', ogr.OFTString)])
+                visible_ds, visible_layer = new_shape(folder / 'visible.shp', output_sr, class_fields)
                 primary_outputs.append('visible.shp')
             sector_ds, sector_layer = new_shape(detail_folder / 'sectors.shp', output_sr, fields)
             for index, record in enumerate(rows):
                 if cancelled():
                     raise Cancelled()
-                row = record.row
-                point_cfg = replace(cfg, observer=record.observer, receiver=record.receiver)
-                fid, lon, lat, start, end = row
+                fid, lon, lat, start, end = record.row
                 log(f'پردازش نقطه {index + 1}/{len(rows)}، شناسه {fid}، نام {record.name!r}')
-                if cfg.name_field and record.name_fallback:
-                    log(f'FID={fid}: ستون نام خالی بود؛ {record.name} استفاده شد.')
-                local_start = time.perf_counter()
-                classes, gt, local_sr, sector, cell = local_result(source, source_sr, row, point_cfg, log, lambda f: progress((index + f) / len(rows) * 0.95), cancelled)
-                if cfg.separate_outputs:
-                    visible_ds, visible_layer = new_shape(folder / point_filenames[index], output_sr, fields + [('status', ogr.OFTInteger), ('state', ogr.OFTString)])
-                transform = osr.CoordinateTransformation(local_sr, output_sr)
-                output_sector = sector.Clone()
-                output_sector.Transform(transform)
-                if output_sr.IsGeographic():
-                    ring = output_sector.GetGeometryRef(0)
-                    if any((abs(ring.GetX(i) - ring.GetX(i - 1)) > 180 for i in range(1, ring.GetPointCount()))):
-                        raise ValueError('قطاع از مرز ۱۸۰ درجه می\u200cگذرد؛ یک EPSG تصویرشدهٔ مناسب برای خروجی انتخاب کنید.')
-                values = dict(src_id=fid, name=record.name, az_start=start, az_end=end, radius_m=cfg.radius_m, obs_m=point_cfg.observer * UNITS[cfg.observer_unit], recv_m=point_cfg.receiver * UNITS[cfg.receiver_unit], cell_m=cell)
-                write_feature(sector_layer, output_sector, values)
-                if cfg.merge_coverage:
-                    sector_union.AddGeometry(output_sector)
-                raster = raster_dataset(classes, gt, local_sr.ExportToWkt(), 255)
-                polygons = ogr.GetDriverByName('Memory').CreateDataSource('')
-                layer = polygons.CreateLayer('classes', srs=local_sr, geom_type=ogr.wkbPolygon)
-                layer.CreateField(ogr.FieldDefn('status', ogr.OFTInteger))
-                log(f'نقطه {fid}: تبدیل نتیجه به پلی\u200cگون Shapefile')
-
-                def polygon_progress(fraction, message, data):
-                    progress((index + 0.85 + 0.15 * fraction) / len(rows) * 0.95)
-                    return 0 if cancelled() else 1
-                gdal.Polygonize(raster.GetRasterBand(1), raster.GetRasterBand(1).GetMaskBand(), layer, 0, callback=polygon_progress)
-                areas = {str(i): 0.0 for i in (0, 1, 2)}
-                for feature in layer:
-                    status = feature.GetField('status')
-                    geometry = feature.GetGeometryRef().Intersection(sector)
-                    areas[str(status)] += geometry.GetArea()
-                    geometry.Transform(transform)
-                    write_feature(visibility_layer, geometry, {**values, 'status': status, 'state': CLASS_NAMES[status]})
-                    if status == 1:
-                        write_feature(visible_layer, geometry, {**values, 'status': 1, 'state': 'visible'})
-                    if cfg.merge_coverage and status in (0, 1):
-                        for piece in polygon_parts(geometry):
-                            union_groups[status].AddGeometry(piece)
-                preview(fid, classes.copy(), dict(cell=cell, lon=lon, lat=lat, name=record.name))
-                counts = {str(i): int(np.count_nonzero(classes == i)) for i in (0, 1, 2)}
-                total = sum(counts.values())
-                farthest_visible = visible_radius(classes, gt)
-                log(f"نقطه {fid}: قابل\u200cدید {counts['1'] / total:.1%} | پنهان {counts['0'] / total:.1%} | نامعلوم {counts['2'] / total:.1%}؛ خروجی قابل\u200cدید: {point_filenames[index]}")
-                log(f'نقطه {fid}: دورترین سلول قابل\u200cدید {farthest_visible / 1000:.3f} کیلومتر؛ حد تحلیل {cfg.radius_m / 1000:g} کیلومتر')
-                if not counts['1']:
-                    log(f'نقطه {fid}: هیچ سلول قابل\u200cدیدی پیدا نشد؛ برای بررسی ارتفاع\u200cها، واحد DEM و تفکیک، run.json و گزارش را نگه دارید.')
-                summaries.append(dict(src_id=fid, name=record.name, observer_at_point_m=values['obs_m'], receiver_on_cells_m=values['recv_m'], output=point_filenames[index], cell_m=cell, grid_shape=list(classes.shape), counts=counts, areas_m2=areas, max_visible_distance_m=farthest_visible, seconds=time.perf_counter() - local_start))
-                visibility_layer.SyncToDisk()
-                visible_layer.SyncToDisk()
-                sector_layer.SyncToDisk()
-                if cfg.separate_outputs:
-                    visible_layer = visible_ds = None
-                    primary_outputs.append(point_filenames[index])
-                layer = polygons = raster = None
-                del classes
+                polygons = classes = point_layer = None
+                written_visible, written_visibility, written_sector = ([], [], [])
+                try:
+                    polygons, output_sector, values, summary, classes = prepare_record(source, source_sr, record, cfg, output_sr, log, lambda f: progress((index + f) / len(rows) * 0.95), cancelled)
+                    if cfg.separate_outputs:
+                        visible_ds, visible_layer = new_shape(folder / point_filenames[index], output_sr, class_fields)
+                    point_layer = polygons.GetLayer(0)
+                    write_feature(sector_layer, output_sector, values, written_sector)
+                    for feature in point_layer:
+                        if cancelled():
+                            raise Cancelled()
+                        status = feature.GetField('status')
+                        geometry = feature.GetGeometryRef()
+                        attributes = {**values, 'status': status, 'state': CLASS_NAMES[status]}
+                        write_feature(visibility_layer, geometry, attributes, written_visibility)
+                        if status == 1:
+                            write_feature(visible_layer, geometry, attributes, written_visible)
+                except (Cancelled, MemoryError, OSError):
+                    raise
+                except Exception as exc:
+                    if cancelled():
+                        raise Cancelled() from exc
+                    rollback_features(sector_layer, written_sector)
+                    rollback_features(visibility_layer, written_visibility)
+                    if visible_layer is not None:
+                        rollback_features(visible_layer, written_visible)
+                    if cfg.separate_outputs:
+                        visible_layer = visible_ds = None
+                        if (folder / point_filenames[index]).exists():
+                            if ogr.GetDriverByName('ESRI Shapefile').DeleteDataSource(str(folder / point_filenames[index])) != ogr.OGRERR_NONE:
+                                raise RuntimeError('حذف فایل ناقص رکورد ناموفق بود.') from exc
+                    reject_record(skipped, log, fid, record.name, 'analysis', exc)
+                    progress((index + 1) / len(rows) * 0.95)
+                    continue
+                else:
+                    if cfg.merge_coverage:
+                        sector_union.AddGeometry(output_sector)
+                        point_layer.ResetReading()
+                        for feature in point_layer:
+                            status = feature.GetField('status')
+                            if status in (0, 1):
+                                for piece in polygon_parts(feature.GetGeometryRef()):
+                                    union_groups[status].AddGeometry(piece)
+                    summary['output'] = point_filenames[index]
+                    summaries.append(summary)
+                    if cfg.separate_outputs:
+                        primary_outputs.append(point_filenames[index])
+                    counts = summary['counts']
+                    total = sum(counts.values())
+                    log(f"نقطه {fid}: قابل\u200cدید {counts['1'] / total:.1%} | پنهان {counts['0'] / total:.1%} | نامعلوم {counts['2'] / total:.1%}؛ خروجی: {point_filenames[index]}")
+                    log(f"نقطه {fid}: دورترین سلول قابل\u200cدید {summary['max_visible_distance_m'] / 1000:.3f} کیلومتر؛ حد تحلیل {cfg.radius_m / 1000:g} کیلومتر")
+                    if not counts['1']:
+                        log(f'نقطه {fid}: هیچ سلول قابل\u200cدیدی پیدا نشد؛ فایل اصلی این نقطه خالی است.')
+                    preview(fid, classes.copy(), dict(cell=values['cell_m'], lon=lon, lat=lat, name=record.name))
+                    visibility_layer.SyncToDisk()
+                    visible_layer.SyncToDisk()
+                    sector_layer.SyncToDisk()
+                finally:
+                    point_layer = polygons = classes = None
+                    if cfg.separate_outputs:
+                        visible_layer = visible_ds = None
+            if not primary_outputs:
+                visible_ds, visible_layer = new_shape(folder / 'visible.shp', output_sr, class_fields)
+                primary_outputs.append('visible.shp')
             visibility_layer = visible_layer = sector_layer = None
             visibility_ds = visible_ds = sector_ds = None
             if cfg.merge_coverage:
@@ -636,7 +714,7 @@ try:
                 hidden = union_groups[0].UnionCascaded() if union_groups[0].GetGeometryCount() else ogr.Geometry(ogr.wkbMultiPolygon)
                 hidden = hidden.Difference(visible) if not visible.IsEmpty() else hidden
                 known = visible.Union(hidden)
-                unknown = sector_union.UnionCascaded().Difference(known)
+                unknown = sector_union.UnionCascaded().Difference(known) if sector_union.GetGeometryCount() else ogr.Geometry(ogr.wkbMultiPolygon)
                 coverage_ds, coverage_layer = new_shape(folder / 'coverage.shp', output_sr, [('name', ogr.OFTString), ('status', ogr.OFTInteger), ('state', ogr.OFTString)])
                 for status, geometry in ((0, hidden), (1, visible), (2, unknown)):
                     if cancelled():
@@ -647,21 +725,27 @@ try:
             write_qml(detail_folder / 'visibility.shp')
             for filename in primary_outputs:
                 write_qml(folder / filename, visible_only=True)
-            (folder / 'README_RESULTS_FA.txt').write_text('فایل\u200cهای اصلی قابل\u200cدید:\n' + '\n'.join(primary_outputs) + '\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nدر حالت خروجی جدا، لایه\u200cهای کمکی visibility و sectors داخل پوشهٔ details هستند.\nستون name نام انتخابی نقطه است؛ در صورت نبود نام، FID استفاده می\u200cشود.\nدر نام فایل\u200cهای مستقل، عدد پایانی ارتفاع فرستنده/آبجکت در محل نقطه، بر حسب متر است.\nدر ArcGIS Pro برای آن Fill قرمز و Outline دلخواه تنظیم کنید.\nsectors.shp فقط مرز شعاع و آزیموت تحلیل است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم.\nنمایش همهٔ این کلاس\u200cها با یک نماد، شکل قطاع کامل را نشان می\u200cدهد.\nدر صورت وجود چند ناظر، برای مقایسهٔ یک ناظر با Global Mapper، src_id همان ناظر را فیلتر کنید.\nبرای مقایسهٔ محاسبه، DEM، موقعیت ناظر، ارتفاع فرستنده در نقطه و گیرنده روی سلول\u200cها، واحدها، شعاع، آزیموت، اندازهٔ واقعی پیکسل و تنظیم انحنا/شکست باید یکسان باشند.\nrun.json تنظیمات و شمارش و مساحت کلاس\u200cها را برای بررسی ذخیره می\u200cکند.\nمطابقت محاسبات با Global Mapper روی دادهٔ شما هنوز تأیید نشده است.\n', encoding='utf-8')
-            report = dict(status='completed', application_version='3.2.0', offline=True, engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=None if cfg.separate_outputs else 'visible.shp', primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            save_skipped_records(folder, skipped)
+            (folder / 'README_RESULTS_FA.txt').write_text('فایل\u200cهای اصلی قابل\u200cدید:\n' + '\n'.join(primary_outputs) + '\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nرکوردهای نامعتبر با FID، نام، ستون و علت در skipped_records.csv و skipped_records.json ثبت می\u200cشوند.\nاگر همهٔ رکوردها رد شده\u200cاند یا ورودی خالی است، visible.shp خالی ولی قابل باز کردن ساخته می\u200cشود.\nدر حالت خروجی جدا، لایه\u200cهای کمکی visibility و sectors داخل details هستند.\nستون name نام انتخابی نقطه است؛ بدون انتخاب ستون نام، FID استفاده می\u200cشود.\nعدد پایانی فایل مستقل، ارتفاع فرستنده/آبجکت در محل نقطه بر حسب متر است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم؛ sectors.shp فقط مرز تحلیل است.\nبرای مقایسه با Global Mapper، DEM، موقعیت، ارتفاع\u200cها، واحدها، شعاع، آزیموت، پیکسل و انحنا باید یکسان باشند.\nrun.json تنظیمات، رکوردهای موفق و ردشده و شمارش و مساحت کلاس\u200cها را نگه می\u200cدارد.\n', encoding='utf-8')
+            outcome = 'no_valid_observers' if not summaries else 'completed_with_skips' if skipped else 'completed'
+            report = dict(status='completed', outcome=outcome, application_version='3.2.1', offline=True, selected_records=len(rows) + sum((r['stage'] == 'input' for r in skipped)), succeeded_records=len(summaries), skipped_count=len(skipped), skipped_records=skipped, skipped_report='skipped_records.csv', empty_output=not any((row['counts']['1'] for row in summaries)), engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=primary_outputs[0] if not cfg.separate_outputs or not summaries else None, primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'Invalid records are logged and skipped; no invalid point is given fabricated coverage.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
-            log(f"پایان: {report['seconds']:.2f} ثانیه | {folder}\nتعداد شیپ\u200cفایل اصلی قابل\u200cدید: {len(primary_outputs)}")
+            log(f'پایان: {len(summaries)} رکورد موفق، {len(skipped)} رکورد ردشده؛ گزارش: skipped_records.csv\n{folder}')
+            if not summaries:
+                log('هشدار: هیچ رکوردی با موفقیت تحلیل نشد؛ visible.shp خالی ساخته شد. گزارش رکوردهای ردشده را بخوانید.')
             return str(folder)
         except Exception as exc:
             visibility_layer = visible_layer = sector_layer = None
             visibility_ds = visible_ds = sector_ds = None
+            save_skipped_records(folder, skipped)
             (folder / 'FAILED.txt').write_text(str(exc) or 'Cancelled; outputs may be partial.', encoding='utf-8')
             if cancelled():
                 raise Cancelled() from exc
             raise
     'Qt desktop GUI. GDAL runs on a worker thread; there is no ArcPy import.'
     import os
+    import json
     import logging
     from pathlib import Path
     import sys
@@ -712,7 +796,7 @@ try:
 
         def __init__(self):
             super().__init__()
-            self.setWindowTitle('Fast Sector Viewshed 3.2 | دیدپذیری قطاعی آفلاین')
+            self.setWindowTitle('Fast Sector Viewshed 3.2.1 | دیدپذیری قطاعی آفلاین')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -1079,7 +1163,7 @@ try:
             self.read_fields.setEnabled(False)
             self.cancel_button.setEnabled(True)
             self.cancel_event.clear()
-            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.2 ──')
+            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.2.1 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)
@@ -1104,7 +1188,13 @@ try:
         def on_result(self, folder):
             self.result_folder = folder
             self.open_button.setEnabled(True)
-            self.status.setText('نتیجهٔ Shapefile ذخیره شد: ' + folder)
+            report = json.loads((Path(folder) / 'run.json').read_text(encoding='utf-8'))
+            successful, skipped = (report['succeeded_records'], report['skipped_count'])
+            message = f'خروجی ذخیره شد؛ {successful} رکورد موفق، {skipped} رکورد ردشده.'
+            if not successful:
+                message = 'هشدار: هیچ رکورد موفقی نیست؛ visible.shp خالی ساخته شد.'
+            self.status.setText(message)
+            self.log.appendPlainText(message + ' گزارش: skipped_records.csv')
 
         @QtCore.Slot()
         def finished(self):

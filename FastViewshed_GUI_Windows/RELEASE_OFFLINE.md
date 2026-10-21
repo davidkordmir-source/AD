@@ -1,11 +1,7 @@
-# Fast Viewshed 3.2.0 — complete offline Windows x64
+# Fast Viewshed 3.2.1 — offline invalid-record fix
 
-دانلود اصلی: **FastViewshed_Offline_Windows_x64_v3.2.0.zip**
+برای نصب آفلاین ۳٫۲ موجود، فقط FastViewshed_GUI.py داخل [اصلاحیهٔ کوچک](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Update_v3.2.1.zip) را کنار Run_Fast_Viewshed.bat قبلی جایگزین کنید. نصب کتابخانه لازم نیست.
 
-ZIP را کامل استخراج و Run_Fast_Viewshed.bat را اجرا کنید. Python، GDAL، NumPy، Qt، DLLها و داده‌های مختصات داخل بسته هستند؛ نصب و اجرا به اینترنت، ArcGIS، Miniforge یا Python قبلی نیاز ندارند. اینترنت را می‌توانید پیش از اولین اجرا قطع کنید.
+رکورد نامعتبر با FID، ستون و علت در skipped_records.csv/json ثبت می‌شود؛ نقاط سالم ادامه دارند. اگر همه رد شوند، visible.shp خالی با CRS و فایل‌های جانبی ساخته می‌شود. GUI تعداد موفق و ردشده و هشدار خروجی خالی را نشان می‌دهد. نتیجهٔ ناقص رکورد خطادار از همهٔ لایه‌ها حذف می‌شود.
 
-نصب‌کننده فقط فایل همراه را بررسی و استخراج می‌کند و هیچ مسیر نصب اینترنتی ندارد. داده‌های آنلاین PROJ غیرفعال‌اند. امکانات ارتفاع از ستون عددی/متنی، انتخاب نام و خروجی مستقل هر نقطه حفظ شده‌اند.
-
-Windows build verification installs the archived runtime into a path containing spaces, blocks outbound traffic for its private python.exe and pythonw.exe with Windows Firewall, and runs native GDAL viewshed, shapefile round-trip, height-mapping regression, and the actual Qt GUI worker. See WINDOWS_OFFLINE_VALIDATION.json. SHA256SUMS.txt checks the complete download; RUNTIME_MANIFEST.json lists bundled native dependency versions and runtime size.
-
-Target: Windows 10/11 x64. Full source and third-party licenses accompany the runtime. The older small source/update ZIPs do not contain this runtime.
+برای نصب تازه، ZIP کامل FastViewshed_Offline_Windows_x64_v3.2.1.zip همهٔ وابستگی‌ها را دارد؛ استخراج و Run_Fast_Viewshed.bat کافی است. نصب و اجرا دانلود ندارند. آزمون ویندوز با شبکهٔ پایتون مسدود، محاسبهٔ واقعی، GUI، رد رکورد نامعتبر و خروجی خالی را بررسی می‌کند. WINDOWS_OFFLINE_VALIDATION.json و SHA256SUMS.txt همراه انتشار هستند.

@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 
+from osgeo import ogr
 from PySide6 import QtCore, QtTest, QtWidgets
 
 from fast_viewshed.gui import FastWindow
@@ -230,6 +231,30 @@ class GuiTests(unittest.TestCase):
         self.window.height_modes["receiver"].setChecked(True)
         with self.assertRaisesRegex(ValueError, "ستون ارتفاع"):
             self.window.settings()
+
+    def test_all_invalid_records_finish_gui_with_empty_shp_and_warning(self):
+        points, dem = self.data.inputs(start="bad")
+        window = self.window
+        window.inputs["points"].setText(str(points))
+        window.load_fields()
+        window.inputs["start_field"].setCurrentText("az_start")
+        window.inputs["end_field"].setCurrentText("az_end")
+        window.inputs["dem"].setText(str(dem))
+        window.inputs["output_dir"].setText(str(self.data.root/"gui_skips"))
+        window.separate.setChecked(True)
+        window.run_button.click()
+        self.wait_for_analysis()
+        self.assertIsNone(window.thread)
+        self.assertIsNotNone(window.result_folder,msg=window.log.toPlainText())
+        folder=Path(window.result_folder)
+        ds=ogr.Open(str(folder/"visible.shp"))
+        self.assertEqual(ds.GetLayer(0).GetFeatureCount(),0)
+        self.assertEqual(window.preview_selector.count(),0)
+        self.assertIn("هشدار",window.status.text())
+        self.assertIn("FID=0",window.log.toPlainText())
+        self.assertIn("skipped_records.csv",window.log.toPlainText())
+        self.assertEqual(window.progress_bar.value(),100)
+        self.assertTrue(window.open_button.isEnabled())
 
 
 if __name__ == "__main__":

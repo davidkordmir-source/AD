@@ -156,27 +156,27 @@ class FastTerrainTests(unittest.TestCase):
         folder, _ = self.run_case((geo_points, geo_dem), output_epsg=32639)
         self.assertEqual(self.statuses(folder, 500355, 3950505), [1])
 
-    def test_bad_text_reports_feature_id_and_no_result(self):
-        points, dem = self.inputs(start="bad")
-        with self.assertRaisesRegex(ValueError, "FID=0"):
-            run_fast(FastSettings(str(points), str(dem), "az_start", "az_end", str(self.root/"results")))
-        self.assertFalse((self.root/"results").exists())
+    def test_bad_text_reports_feature_id_and_creates_empty_shp(self):
+        folder, report = self.run_case(self.inputs(start="bad"))
+        self.assertEqual(report["outcome"], "no_valid_observers")
+        self.assertEqual(report["skipped_records"][0]["src_id"], 0)
+        self.assertEqual(report["skipped_records"][0]["field"], "az_start")
+        ds = ogr.Open(str(folder/"visible.shp"))
+        self.assertEqual(ds.GetLayer(0).GetFeatureCount(), 0)
 
-    def test_unsampled_thin_sector_does_not_report_empty_output_as_success(self):
-        points, dem = self.inputs(start="45.123456", end="45.123457")
-        with self.assertRaisesRegex(ValueError, "هیچ سلولی"):
-            run_fast(FastSettings(str(points), str(dem), "az_start", "az_end", str(self.root/"results"),
-                                  radius=700, radius_unit="m", cell_size=10, observer=2, receiver=0), log=lambda message: None)
-        result = next((self.root/"results").glob("fast_viewshed_*"))
-        self.assertFalse((result/"run.json").exists())
+    def test_unsampled_thin_sector_is_logged_with_empty_output(self):
+        folder, report = self.run_case(self.inputs(start="45.123456", end="45.123457"))
+        self.assertEqual(report["outcome"], "no_valid_observers")
+        self.assertIn("هیچ سلولی", report["skipped_records"][0]["error"])
+        self.assertEqual(report["skipped_records"][0]["stage"], "analysis")
+        self.assertFalse((folder/"FAILED.txt").exists())
 
     def test_cancelled_analysis_does_not_claim_completion(self):
         points, dem = self.inputs()
         with self.assertRaises(Cancelled):
             run_fast(FastSettings(str(points), str(dem), "az_start", "az_end", str(self.root/"results")), cancelled=lambda: True)
         folders = list((self.root/"results").glob("fast_viewshed_*"))
-        self.assertTrue((folders[0]/"FAILED.txt").exists())
-        self.assertFalse((folders[0]/"run.json").exists())
+        self.assertFalse(any((folder/"run.json").exists() for folder in folders))
 
     def test_oversized_grid_auto_adjusts_and_writes_actual_pixel_size(self):
         folder, report = self.run_case(self.inputs(), cell_size=1, max_grid_mcells=1)
@@ -256,8 +256,9 @@ class FastTerrainTests(unittest.TestCase):
 
     def test_missing_observer_ground_may_be_explicitly_treated_as_sea_level(self):
         inputs = self.inputs(gap=True, x=500505)
-        with self.assertRaisesRegex(ValueError, "فاقد ارتفاع"):
-            self.run_case(inputs)
+        _, skipped = self.run_case(inputs)
+        self.assertEqual(skipped["succeeded_records"], 0)
+        self.assertIn("فاقد ارتفاع", skipped["skipped_records"][0]["error"])
         _, report = self.run_case(inputs, nodata_policy="sea_level")
         self.assertEqual(report["status"], "completed")
 
@@ -273,8 +274,10 @@ class FastTerrainTests(unittest.TestCase):
         self.assertEqual(f.GetField("az_end"), 250)
 
     def test_missing_selected_fid_reports_it(self):
-        with self.assertRaisesRegex(ValueError, "FID=1"):
-            self.run_case(self.inputs(), observer_fid=1)
+        folder, report = self.run_case(self.inputs(), observer_fid=1)
+        self.assertTrue((folder/"visible.shp").is_file())
+        self.assertEqual(report["skipped_records"][0]["src_id"], 1)
+        self.assertEqual(report["skipped_records"][0]["stage"], "selection")
 
 
 if __name__ == "__main__":

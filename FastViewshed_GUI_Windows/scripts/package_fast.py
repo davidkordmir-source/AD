@@ -15,7 +15,7 @@ UPDATE = """Fast Sector Viewshed 3.2 — SOURCE ONLY
 
 This small update contains application source, not Python/GDAL/Qt binaries.
 An existing working runtime is required. To install on an offline computer,
-use FastViewshed_Offline_Windows_x64_v3.2.0.zip from the GitHub release.
+use FastViewshed_Offline_Windows_x64_v3.2.1.zip from the GitHub release.
 
 The complete offline bundle includes Python and native dependencies and uses
 only local extraction at the destination. Do not use an older online installer.
@@ -35,7 +35,7 @@ def main():
              "scripts/test_offline_windows.ps1", "scripts/finalize_offline_release.py"]
     for pattern in ("fast_viewshed/*.py", "fast_tests/test_*.py", "demo_fast/*"):
         files.extend(str(p.relative_to(ROOT)) for p in sorted(ROOT.glob(pattern)) if p.is_file())
-    full = DIST/"FastViewshed_Source_v3.2.0.zip"
+    full = DIST/"FastViewshed_Source_v3.2.1.zip"
     with ZipFile(full.with_suffix(".tmp"), "w", ZIP_DEFLATED) as z:
         for name in files:
             if name.endswith(".bat"):
@@ -49,10 +49,10 @@ def main():
             path = ROOT/"fast-test-results"/screenshot
             if path.exists():
                 z.write(path, PREFIX+screenshot)
-        z.writestr(PREFIX+"README.md", "# Fast Sector Viewshed 3.2.0 — SOURCE ONLY\n\nThis archive contains source code and synthetic demo data. It does not contain a Python runtime or native dependencies and is NOT the complete offline installation.\n\nFor a self-contained offline installation, download FastViewshed_Offline_Windows_x64_v3.2.0.zip from https://github.com/davidkordmir-source/AD/releases/tag/v3.2.0-offline .\n\nOffline builds are produced by scripts/build_offline_windows.py on Windows and verified with Windows Firewall blocking the bundled interpreter.\n")
+        z.writestr(PREFIX+"README.md", "# Fast Sector Viewshed 3.2.1 — SOURCE ONLY\n\nThis archive contains source code and synthetic demo data. It does not contain a Python runtime or native dependencies and is NOT the complete offline installation.\n\nFor a self-contained offline installation, download FastViewshed_Offline_Windows_x64_v3.2.1.zip from https://github.com/davidkordmir-source/AD/releases/tag/v3.2.1-offline .\n\nOffline builds are produced by scripts/build_offline_windows.py on Windows and verified with Windows Firewall blocking the bundled interpreter.\n")
         z.writestr(PREFIX+"UPDATE_FA.txt", UPDATE)
     full.with_suffix(".tmp").replace(full)
-    patch = DIST/"FastViewshed_Source_Update_v3.2.0.zip"
+    patch = DIST/"FastViewshed_Source_Update_v3.2.1.zip"
     with ZipFile(patch, "w", ZIP_DEFLATED) as z:
         z.write(ROOT/"FastViewshed_GUI.py", "FastViewshed_GUI.py")
         z.writestr("UPDATE_FA.txt", UPDATE)

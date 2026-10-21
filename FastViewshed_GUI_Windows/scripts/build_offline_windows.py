@@ -13,7 +13,7 @@ import shutil
 import sys
 from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
-VERSION = '3.2.0'
+VERSION = '3.2.1'
 BUNDLE = 'FastViewshed_Offline_Windows_x64'
 ROOT = Path(__file__).resolve().parent.parent
 

@@ -1,0 +1,14 @@
+{
+  "title": "Bundled offline OpenStreetMap country boundaries",
+  "source": "https://registry.npmjs.org/osm-countries-bounds/-/osm-countries-bounds-0.1.0.tgz",
+  "source_repository": "https://github.com/grinat/osm-countries-bounds",
+  "source_version": "0.1.0",
+  "source_release": "2020-02-07",
+  "attribution": "© OpenStreetMap contributors",
+  "license": "ODbL-1.0",
+  "license_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+  "modification": "Selected country geometries; topology-preserving simplification at 0.008 degrees. Display only; not used for viewshed calculations.",
+  "features": 212,
+  "sha256": "8d102005b45f25f85c8324a804cf0c66df72595e55cdc1657d7510e433acf95c",
+  "original_json_sha256": "078f660a9d8958e1f57d3c6c00303111c20a45ca9055930382695a25ce10f34f"
+}

@@ -11,5 +11,5 @@ exit /b 0
 :failed
 echo Startup failed. Keep this message and OFFLINE_CHECK.json for troubleshooting.
 echo Startup logs are in %%TEMP%%\FastViewshed_logs
-pause
+if /i not "%~1"=="--launcher" pause
 exit /b 1

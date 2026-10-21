@@ -47,6 +47,8 @@ class FastSettings:
     receiver_field: str = ""
     name_field: str = ""
     separate_outputs: bool = False
+    combined_name_field: str = ""
+    combined_name_value: str = ""
 
     @property
     def radius_m(self):
@@ -87,7 +89,7 @@ class FastSettings:
             raise ValueError("روش برخورد با ارتفاع ناموجود نامعتبر است.")
         if isinstance(self.observer_fid, bool) or not isinstance(self.observer_fid, int) or self.observer_fid < -1:
             raise ValueError("FID باید عدد صحیح از منفی یک به بالا باشد؛ منفی یک یعنی همهٔ نقاط.")
-        for field in ("observer_field", "receiver_field", "name_field"):
+        for field in ("observer_field", "receiver_field", "name_field", "combined_name_field", "combined_name_value"):
             if not isinstance(getattr(self, field), str):
                 raise ValueError("نام ستون نامعتبر است: "+field)
         if not isinstance(self.separate_outputs, bool):

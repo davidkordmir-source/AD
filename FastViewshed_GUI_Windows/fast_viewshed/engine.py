@@ -164,6 +164,58 @@ def separate_filenames(cfg, records):
     return names
 
 
+def read_attribute_values(path, field):
+    metadata = inspect_shape(path)
+    if field not in metadata["fields"]:
+        raise ValueError("ستون نام خروجی در فایل ورودی موجود نیست: "+field)
+    ds = gdal.OpenEx(str(path), gdal.OF_VECTOR | gdal.OF_READONLY,
+                    allowed_drivers=["ESRI Shapefile", "GeoJSON"])
+    values = {}
+    for feature in ds.GetLayer(0):
+        raw = feature.GetField(field)
+        text = str(raw).strip() if raw is not None else ""
+        if text:
+            values.setdefault(text, None)
+    return list(values)
+
+
+def combined_filename(cfg):
+    if not cfg.combined_name_field:
+        return "visible.shp"
+    choices = read_attribute_values(cfg.points, cfg.combined_name_field)
+    if cfg.combined_name_value not in choices:
+        raise ValueError("مقدار نام خروجی را از فهرست ستون انتخاب‌شده تعیین کنید.")
+    value = cfg.combined_name_value
+    if value.lower().endswith(".shp"):
+        value = value[:-4]
+    stem = filename_component(value, 180)
+    if stem.casefold() in {"visibility", "sectors", "coverage"}:
+        stem += "_visible"
+    return stem+".shp"
+
+
+def read_map_observers(path):
+    inspect_shape(path)
+    ds = gdal.OpenEx(str(path), gdal.OF_VECTOR | gdal.OF_READONLY,
+                    allowed_drivers=["ESRI Shapefile", "GeoJSON"])
+    layer = ds.GetLayer(0)
+    source_sr = layer.GetSpatialRef().Clone()
+    source_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    transform = osr.CoordinateTransformation(source_sr, spatial_ref("EPSG:4326"))
+    points = []
+    for feature in layer:
+        try:
+            geom = feature.GetGeometryRef()
+            if geom is None or geom.IsEmpty() or ogr.GT_Flatten(geom.GetGeometryType()) != ogr.wkbPoint:
+                continue
+            lon, lat, _ = transform.TransformPoint(geom.GetX(), geom.GetY())
+            if math.isfinite(lon) and math.isfinite(lat) and -180 <= lon <= 180 and -85 <= lat <= 85:
+                points.append((feature.GetFID(), lon, lat))
+        except (ValueError, RuntimeError):
+            continue
+    return points
+
+
 def sector_polygon(start, end, radius, cell):
     ranges = angle_ranges(start, end)
     sweep = sum(b-a for a, b in ranges)
@@ -459,6 +511,7 @@ def prepare_record(source, source_sr, record, cfg, output_sr, log, progress, can
     summary = dict(src_id=fid, name=record.name, observer_at_point_m=values["obs_m"],
                    receiver_on_cells_m=values["recv_m"], cell_m=cell, grid_shape=list(classes.shape),
                    counts=counts, areas_m2=areas, max_visible_distance_m=visible_radius(classes, gt),
+                   grid_transform=list(gt), grid_crs=local_sr.ExportToWkt(),
                    seconds=time.perf_counter()-started)
     return polygons, output_sector, values, summary, classes
 
@@ -484,6 +537,7 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     if not source.GetProjection():
         raise ValueError("سیستم مختصات DEM مشخص نیست.")
     source_sr = spatial_ref(source.GetProjection())
+    shared_filename = "visible.shp" if cfg.separate_outputs else combined_filename(cfg)
     output = Path(cfg.output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     folder = output/("fast_viewshed_"+datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
@@ -491,7 +545,7 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     detail_folder = folder/"details" if cfg.separate_outputs else folder
     detail_folder.mkdir(exist_ok=True)
     save_skipped_records(folder, skipped)
-    point_filenames = separate_filenames(cfg, rows) if cfg.separate_outputs else ["visible.shp"]*len(rows)
+    point_filenames = separate_filenames(cfg, rows) if cfg.separate_outputs else [shared_filename]*len(rows)
     primary_outputs = []
     fields = [("src_id", ogr.OFTInteger64), ("name", ogr.OFTString), ("az_start", ogr.OFTReal), ("az_end", ogr.OFTReal),
               ("radius_m", ogr.OFTReal), ("obs_m", ogr.OFTReal), ("recv_m", ogr.OFTReal), ("cell_m", ogr.OFTReal)]
@@ -504,8 +558,8 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
     try:
         visibility_ds, visibility_layer = new_shape(detail_folder/"visibility.shp", output_sr, class_fields)
         if not cfg.separate_outputs:
-            visible_ds, visible_layer = new_shape(folder/"visible.shp", output_sr, class_fields)
-            primary_outputs.append("visible.shp")
+            visible_ds, visible_layer = new_shape(folder/shared_filename, output_sr, class_fields)
+            primary_outputs.append(shared_filename)
         sector_ds, sector_layer = new_shape(detail_folder/"sectors.shp", output_sr, fields)
         for index, record in enumerate(rows):
             if cancelled():
@@ -568,7 +622,8 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
                 log(f"نقطه {fid}: دورترین سلول قابل‌دید {summary['max_visible_distance_m']/1000:.3f} کیلومتر؛ حد تحلیل {cfg.radius_m/1000:g} کیلومتر")
                 if not counts["1"]:
                     log(f"نقطه {fid}: هیچ سلول قابل‌دیدی پیدا نشد؛ فایل اصلی این نقطه خالی است.")
-                preview(fid, classes.copy(), dict(cell=values["cell_m"], lon=lon, lat=lat, name=record.name))
+                preview(fid, classes.copy(), dict(cell=values["cell_m"], lon=lon, lat=lat, name=record.name,
+                                                        transform=summary["grid_transform"], crs=summary["grid_crs"]))
                 visibility_layer.SyncToDisk()
                 visible_layer.SyncToDisk()
                 sector_layer.SyncToDisk()
@@ -579,8 +634,8 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
         if not primary_outputs:
             # A readable empty SHP is still delivered when every point is bad,
             # including separate-output mode and an empty input layer.
-            visible_ds, visible_layer = new_shape(folder/"visible.shp", output_sr, class_fields)
-            primary_outputs.append("visible.shp")
+            visible_ds, visible_layer = new_shape(folder/shared_filename, output_sr, class_fields)
+            primary_outputs.append(shared_filename)
         visibility_layer = visible_layer = sector_layer = None
         visibility_ds = visible_ds = sector_ds = None
         if cfg.merge_coverage:
@@ -615,7 +670,7 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
             "run.json تنظیمات، رکوردهای موفق و ردشده و شمارش و مساحت کلاس‌ها را نگه می‌دارد.\n",
             encoding="utf-8")
         outcome = "no_valid_observers" if not summaries else "completed_with_skips" if skipped else "completed"
-        report = dict(status="completed", outcome=outcome, application_version="3.2.1", offline=True,
+        report = dict(status="completed", outcome=outcome, application_version="3.3.0", offline=True,
                       selected_records=len(rows)+sum(r["stage"] == "input" for r in skipped),
                       succeeded_records=len(summaries), skipped_count=len(skipped), skipped_records=skipped,
                       skipped_report="skipped_records.csv", empty_output=not any(row["counts"]["1"] for row in summaries),
@@ -639,7 +694,7 @@ def run_fast(cfg: FastSettings, log=print, progress=lambda fraction: None, cance
         progress(1)
         log(f"پایان: {len(summaries)} رکورد موفق، {len(skipped)} رکورد ردشده؛ گزارش: skipped_records.csv\n{folder}")
         if not summaries:
-            log("هشدار: هیچ رکوردی با موفقیت تحلیل نشد؛ visible.shp خالی ساخته شد. گزارش رکوردهای ردشده را بخوانید.")
+            log(f"هشدار: هیچ رکوردی با موفقیت تحلیل نشد؛ {shared_filename} خالی ساخته شد. گزارش رکوردهای ردشده را بخوانید.")
         return str(folder)
     except Exception as exc:
         visibility_layer = visible_layer = sector_layer = None

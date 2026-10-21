@@ -13,7 +13,7 @@ import shutil
 import sys
 from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
-VERSION = '3.2.1'
+VERSION = '3.3.0'
 BUNDLE = 'FastViewshed_Offline_Windows_x64'
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -49,6 +49,7 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT/relative, target)
     shutil.copytree(ROOT/'demo_fast', stage/'demo_fast', dirs_exist_ok=True)
+    shutil.copytree(ROOT/'assets', stage/'assets', dirs_exist_ok=True)
     packages = []
     license_root = stage/'THIRD_PARTY_LICENSES'
     for record in sorted((runtime/'conda-meta').glob('*.json')):

@@ -30,7 +30,7 @@ def build_fast():
             application.append(node)
         elif isinstance(node, ast.FunctionDef) and node.name in {"number", "_degrees", "azimuth", "angle_ranges"}:
             application.append(node)
-    for name in ("model", "engine", "gui"):
+    for name in ("model", "engine", "basemap", "gui"):
         tree = ast.parse((ROOT/"fast_viewshed"/(name+".py")).read_text(encoding="utf-8"))
         application.extend(FlattenFast().visit(tree).body)
     application.extend(ast.parse('''

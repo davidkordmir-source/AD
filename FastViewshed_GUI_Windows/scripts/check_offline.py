@@ -73,6 +73,13 @@ def main():
             ds = None
         assert covered == [True, False], covered
 
+        from dataclasses import replace
+        named = Path(application["run_fast"](replace(config, separate_outputs=False, combined_name_field="name", combined_name_value="Site1"), log=lambda _:None))
+        named_report = json.loads((named/"run.json").read_text(encoding="utf-8"))
+        assert named_report["primary_output"] == "Site1.shp"
+        named_ds = ogr.Open(str(named/"Site1.shp"))
+        assert {f.GetField("src_id") for f in named_ds.GetLayer(0)} == {0,1}
+        named_ds = None
         # Exercise the shipped record-skipping behavior with real native SHPs.
         ds = ogr.Open(str(points), 1)
         layer = ds.GetLayer(0)
@@ -127,6 +134,8 @@ def main():
             window.height_modes[kind].setChecked(True)
             window.inputs[kind+"_field"].setCurrentText(field)
         window.separate.setChecked(True)
+        assert window.map_view.boundary_count >= 200
+        assert not window.windowIcon().isNull()
         window.show()
         window.run_button.click()
         loop = QtCore.QEventLoop()
@@ -151,7 +160,7 @@ def main():
                   gdal=gdal.VersionInfo("RELEASE_NAME"), qt=QtCore.qVersion(), numpy=np.__version__,
                   proj_network=False, private_runtime=True, shapefile_round_trip=True,
                   transmitter_receiver_regression=True, gui_worker=True, previews=2, invalid_record_skipping=True,
-                  all_invalid_empty_shapefile=True, skip_report_written=True)
+                  all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=True, aircraft_icon=True)
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("Offline runtime verification passed: GDAL, NumPy, Qt, real viewshed and GUI.")
 

@@ -39,10 +39,16 @@ jobs:
         run: |
           Start-Transcript -Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt
           try {
-            ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.1.zip -Output _build/dist
+            ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.3.0.zip -Output _build/dist
           } finally {
             Stop-Transcript
           }
+      - name: Build Windows installer and graphical launcher
+        run: |
+          Copy-Item _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/stage/FastViewshed_Offline_Windows_x64/
+          ./scripts/build_windows_installer.ps1 -Stage _build/dist/stage/FastViewshed_Offline_Windows_x64 -Output _build/dist -Version 3.3.0
+      - name: Test actual installation, desktop icon, launch and uninstall offline
+        run: ./scripts/test_windows_installer.ps1 -Installer _build/dist/FastViewshed_Setup_v3.3.0_Windows_x64.exe -Output _build/dist
       - name: Report installation errors
         if: failure()
         run: |
@@ -55,23 +61,25 @@ jobs:
         shell: bash -el {0}
         run: python scripts/finalize_offline_release.py _build/dist
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: FastViewshed-Offline-Windows-x64
-          compression-level: 0
+          name: Windows-installer-verification
+          retention-days: 7
+          if-no-files-found: warn
           path: |
-            FastViewshed_GUI_Windows/_build/dist/*.zip
             FastViewshed_GUI_Windows/_build/dist/*.json
-            FastViewshed_GUI_Windows/_build/dist/SHA256SUMS.txt
+            FastViewshed_GUI_Windows/_build/dist/*.log
+            FastViewshed_GUI_Windows/_build/dist/*.txt
       - name: Publish complete offline package
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          $tag = 'v3.2.1-offline'
+          $tag = 'v3.3.0-installer'
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target ((git rev-parse HEAD).Trim()) --title 'Fast Viewshed 3.2.1 - complete offline Windows x64' --notes-file RELEASE_OFFLINE.md
+            gh release create $tag --target ((git rev-parse HEAD).Trim()) --title 'Fast Viewshed 3.3.0 - offline Windows installer with OSM preview' --notes-file RELEASE_OFFLINE.md
             if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
           }
-          gh release upload $tag _build/dist/FastViewshed_Offline_Windows_x64_v3.2.1.zip _build/dist/SHA256SUMS.txt _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/RUNTIME_MANIFEST.json --clobber
+          gh release upload $tag _build/dist/FastViewshed_Setup_v3.3.0_Windows_x64.exe _build/dist/WINDOWS_INSTALLER_VALIDATION.json _build/dist/FastViewshed_Offline_Windows_x64_v3.3.0.zip _build/dist/SHA256SUMS.txt _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/RUNTIME_MANIFEST.json --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed.' }

@@ -1,5 +1,5 @@
 {
-  "application": "Fast Sector Viewshed 3.1.0",
+  "application": "Fast Sector Viewshed 3.2.0",
   "tested_runtime": {
     "python": "3.13.5",
     "gdal": "3.10.3",
@@ -8,13 +8,17 @@
     "platform": "Linux / Qt offscreen"
   },
   "suite": {
-    "tests": 54,
-    "passed": 54,
+    "tests": 58,
+    "passed": 58,
     "failed": 0,
     "skipped": 0,
-    "seconds": 4.6305827269970905
+    "seconds": 4.335
   },
   "new_checks": [
+    "PROJ network disabled",
+    "Remote point and DEM URLs rejected before native remote open",
+    "Network-capable VRT input rejected",
+    "Offline verification script drives real GUI and validates independent Shapefile outputs",
     "Real per-feature text and numeric heights change computed visibility",
     "Both observer and receiver attribute heights",
     "Ten selected points produce exactly ten primary Shapefiles",
@@ -30,7 +34,7 @@
   ],
   "algorithm": "Accepted 3.0 transmitter-at-point / receiver-on-cells mapping is retained; underlying GDAL viewshed algorithm is unchanged.",
   "limitations": [
-    "Windows launch/installer not executed in this Linux environment.",
+    "Windows runtime packaging and firewall verification are recorded separately by the release workflow in WINDOWS_OFFLINE_VALIDATION.json.",
     "Split files are generated for selected FIDs; FID=-1 processes all valid input points.",
     "The selected name must fit the Shapefile 254-byte UTF-8 field limit; long filenames are shortened without truncating valid attribute names.",
     "No uploaded user geometry is included in this source package."

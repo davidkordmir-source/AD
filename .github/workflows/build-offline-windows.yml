@@ -36,7 +36,21 @@ jobs:
         shell: bash -el {0}
         run: python scripts/build_offline_windows.py --runtime _build/runtime_build --output _build/dist --revision "$GITHUB_SHA"
       - name: Install and test real GUI with outbound network blocked
-        run: ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip -Output _build/dist
+        run: |
+          Start-Transcript -Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt
+          try {
+            ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip -Output _build/dist
+          } finally {
+            Stop-Transcript
+          }
+      - name: Expose offline installation diagnostics
+        if: failure()
+        run: |
+          if (Test-Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt) {
+            $text = Get-Content _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt -Raw
+            $escaped = $text.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
+            Write-Output "::error title=Offline Windows installation transcript::$escaped"
+          }
       - name: Finalize tested artifact
         shell: bash -el {0}
         run: python scripts/finalize_offline_release.py _build/dist

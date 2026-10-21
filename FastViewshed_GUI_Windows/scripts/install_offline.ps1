@@ -19,7 +19,15 @@ try {
     $archive = Join-Path $appRoot $manifest.runtime_archive
     if (-not (Test-Path -LiteralPath $archive)) { throw 'runtime_win64.zip is missing. Copy the full offline package.' }
     Write-Host 'Verifying bundled packages (local files only)...'
-    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.sha256) {
+    $hashStream = [System.IO.File]::OpenRead($archive)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $actualHash = [System.BitConverter]::ToString($sha.ComputeHash($hashStream)).Replace('-','').ToLowerInvariant()
+    } finally {
+        $hashStream.Dispose()
+        $sha.Dispose()
+    }
+    if ($actualHash -ne $manifest.sha256) {
         throw 'Runtime checksum mismatch. Copy the original offline ZIP again.'
     }
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force }

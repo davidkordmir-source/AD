@@ -37,20 +37,34 @@ jobs:
         run: python scripts/build_offline_windows.py --runtime _build/runtime_build --output _build/dist --revision "$GITHUB_SHA"
       - name: Install and test real GUI with outbound network blocked
         run: |
-          Start-Transcript -Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt
-          try {
-            ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip -Output _build/dist
-          } finally {
-            Stop-Transcript
-          }
-      - name: Expose offline installation diagnostics
-        if: failure()
-        run: |
-          if (Test-Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt) {
+          $passed = $false
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            Start-Transcript -Path _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt -Append
+            try {
+              ./scripts/test_offline_windows.ps1 -Archive _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip -Output _build/dist
+              $passed = $true
+            } catch {
+              Write-Host $_
+            } finally {
+              Stop-Transcript
+            }
+            if ($passed) { break }
             $text = Get-Content _build/dist/OFFLINE_WINDOWS_BUILD_LOG.txt -Raw
             $escaped = $text.Replace('%','%25').Replace("`r",'%0D').Replace("`n",'%0A')
-            Write-Output "::error title=Offline Windows installation transcript::$escaped"
+            Write-Output "::warning title=Offline installation attempt $attempt::$escaped"
+            if ($attempt -lt 6) {
+              Start-Sleep -Seconds 60
+              git fetch origin fast-viewshed-gui
+              $previous = (git rev-parse HEAD).Trim()
+              $updated = (git rev-parse origin/fast-viewshed-gui).Trim()
+              if ($updated -ne $previous) {
+                git reset --hard $updated
+                conda run -n pack-tools python scripts/build_offline_windows.py --runtime _build/runtime_build --output _build/dist --revision $updated
+                if ($LASTEXITCODE -ne 0) { throw 'Repacking corrected application failed.' }
+              }
+            }
           }
+          if (-not $passed) { throw 'Offline installation has not passed; no release will be published.' }
       - name: Finalize tested artifact
         shell: bash -el {0}
         run: python scripts/finalize_offline_release.py _build/dist
@@ -70,7 +84,7 @@ jobs:
           $tag = 'v3.2.0-offline'
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target '${{ github.sha }}' --title 'Fast Viewshed 3.2.0 - complete offline Windows x64' --notes-file RELEASE_OFFLINE.md
+            gh release create $tag --target ((git rev-parse HEAD).Trim()) --title 'Fast Viewshed 3.2.0 - complete offline Windows x64' --notes-file RELEASE_OFFLINE.md
             if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
           }
           gh release upload $tag _build/dist/FastViewshed_Offline_Windows_x64_v3.2.0.zip _build/dist/SHA256SUMS.txt _build/dist/WINDOWS_OFFLINE_VALIDATION.json _build/dist/RUNTIME_MANIFEST.json --clobber

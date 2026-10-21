@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "offline": true,
+  "python": "3.12.15 | packaged by conda-forge | (main, Oct 13 2026, 16:44:09) [MSC v.1944 64 bit (AMD64)]",
+  "executable": "D:\\a\\_temp\\Offline verification with spaces\\FastViewshed_Offline_Windows_x64\\runtime_offline\\python.exe",
+  "gdal": "3.10.3",
+  "qt": "6.10.2",
+  "numpy": "2.5.4",
+  "proj_network": false,
+  "private_runtime": true,
+  "shapefile_round_trip": true,
+  "transmitter_receiver_regression": true,
+  "gui_worker": true,
+  "previews": 2,
+  "windows_firewall_outbound_blocked": true,
+  "tested_os": "Microsoft Windows Server 2022 Datacenter",
+  "install_path_contains_spaces": true
+}

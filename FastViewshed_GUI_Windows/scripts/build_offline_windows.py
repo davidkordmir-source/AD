@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
@@ -35,27 +34,6 @@ def main():
     args = parser.parse_args()
     if sys.platform != 'win32':
         raise RuntimeError('Build with native Windows x64 dependencies on Windows.')
-    # During this CI investigation, preserve the local installer output so it
-    # can be reviewed without access to authenticated GitHub job logs.
-    if os.environ.get('GITHUB_ACTIONS') == 'true':
-        log = output_log = Path(args.output).resolve()/'OFFLINE_WINDOWS_BUILD_LOG.txt'
-        local_log = Path(os.environ['RUNNER_TEMP'])/'Offline verification with spaces'/'FastViewshed_Offline_Windows_x64'/'OFFLINE_INSTALL.log'
-        if log.exists():
-            report = ROOT.parent/'build-reports'/'offline-windows-latest.txt'
-            report.parent.mkdir(exist_ok=True)
-            text = log.read_text(encoding='utf-8-sig', errors='replace')[-40000:]
-            if local_log.exists():
-                raw=local_log.read_bytes()
-                text += '\nLOCAL INSTALL OUTPUT:\n'+raw.decode('utf-16' if raw.startswith(b'\xff\xfe') else 'utf-8',errors='replace')[-40000:]
-            report.write_text(text,encoding='utf-8')
-            subprocess.run(['git','config','user.name','github-actions[bot]'],check=True)
-            subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
-            subprocess.run(['git','add',str(report)],check=True)
-            changed = subprocess.run(['git','diff','--cached','--quiet']).returncode
-            if changed:
-                subprocess.run(['git','commit','-m','Record offline Windows installer diagnostics [skip ci]'],check=True)
-                subprocess.run(['git','push','origin','HEAD:fast-viewshed-gui'],check=True)
-                args.revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
     import conda_pack
     runtime = Path(args.runtime).resolve()
     output = Path(args.output).resolve()

@@ -1,0 +1,2 @@
+14f63b99e5d49d028e7c6b74efaf19a87cfc68426f48dbcb31302221a76c4b51  FastViewshed_Offline_Windows_x64_v3.3.0.zip
+eb282d59f589dba7396fe03f131b2f220034b09f8e6a59b7c95793b7a909cc5a  FastViewshed_Setup_v3.3.0_Windows_x64.exe

@@ -1,7 +1,7 @@
-# Fast Viewshed 3.2.1 — offline GUI
+# Fast Viewshed 3.3.0 — Windows installer with offline OSM map
 
-Invalid records are logged to skipped_records.csv/json and skipped; other points continue. If no point succeeds, a readable empty visible.shp with sidecars and CRS is created.
+Download FastViewshed_Setup_v3.3.0_Windows_x64.exe from https://github.com/davidkordmir-source/AD/releases/tag/v3.3.0-installer . Run Setup, then open the aircraft desktop shortcut. All Python/GDAL/Qt dependencies and OSM boundary data ship inside the installer.
 
-For an existing 3.2 offline installation, replace FastViewshed_GUI.py using downloads/FastViewshed_Update_v3.2.1.zip. No dependency installation is needed.
+Shared filenames come from a chosen value of an input attribute. The three primary sections are highlighted; scrolling does not change numeric or combo values. The map is local and georeferences viewshed previews. Invalid-row reporting is retained.
 
-For a new installation, download the complete native runtime archive from https://github.com/davidkordmir-source/AD/releases/tag/v3.2.1-offline . Read README_FAST_FA.md.
+Read README_FAST_FA.md. Source checkouts do not contain the native runtime payload.

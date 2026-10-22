@@ -1,5 +1,9 @@
 # Fast Viewshed 3.3.0 — نصب‌کنندهٔ کاملاً آفلاین ویندوز
 
+[**دانلود بستهٔ نصب ویندوز (حاوی Setup.exe)**](https://github.com/davidkordmir-source/AD/releases/download/v3.3.0-installer/00_FastViewshed_Windows_Setup_v3.3.0.zip)
+
+بستهٔ **00_FastViewshed_Windows_Setup_v3.3.0.zip** را Extract All کنید و **Setup.exe** داخل آن را اجرا کنید. **Next → Install → Finish** را بزنید و گزینهٔ **Create a desktop shortcut** را روشن نگه دارید. آیکون هواپیما روی دسکتاپ ایجاد می‌شود. راهنمای فارسی نیز داخل ZIP است. این بسته شامل همان نصب‌کنندهٔ آزمایش‌شدهٔ زیر است.
+
 فایل اصلی: **FastViewshed_Setup_v3.3.0_Windows_x64.exe**
 
 فایل EXE را اجرا کنید، Next / Install را بزنید و پس از Finish برنامه را از آیکون هواپیما روی دسکتاپ باز کنید. پایتون، GDAL، Qt و دادهٔ نقشه داخل نصب‌کننده‌اند؛ نصب و اجرا اینترنت نمی‌خواهند. برنامه برای کاربر فعلی نصب و در فهرست برنامه‌های ویندوز ثبت می‌شود؛ از همان‌جا قابل حذف است.

@@ -1,5 +1,9 @@
 # Fast Viewshed 3.3 — نرم‌افزار نصبی و کاملاً آفلاین ویندوز
 
+[**دانلود بستهٔ نصب ویندوز — داخل این ZIP فایل Setup.exe است**](https://github.com/davidkordmir-source/AD/releases/download/v3.3.0-installer/00_FastViewshed_Windows_Setup_v3.3.0.zip)
+
+برای نصب: ZIP بالا را **Extract All** کنید، فایل **Setup.exe** را اجرا کنید و **Next → Install → Finish** را بزنید. گزینهٔ **Create a desktop shortcut** روشن باشد تا آیکون هواپیما روی دسکتاپ ایجاد شود. این بسته شامل همان نصب‌کنندهٔ آزمایش‌شده و راهنمای فارسی است.
+
 [**دانلود نصب‌کنندهٔ ویندوز — FastViewshed_Setup_v3.3.0_Windows_x64.exe**](https://github.com/davidkordmir-source/AD/releases/download/v3.3.0-installer/FastViewshed_Setup_v3.3.0_Windows_x64.exe)
 
 [صفحهٔ انتشار و گزارش آزمون‌ها](https://github.com/davidkordmir-source/AD/releases/tag/v3.3.0-installer)

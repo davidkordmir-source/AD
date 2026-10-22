@@ -47,4 +47,4 @@
 
 [راهنمای کامل فارسی](FastViewshed_GUI_Windows/README_FAST_FA.md) · [کد برنامه](FastViewshed_GUI_Windows/FastViewshed_GUI.py) · [ساخت ویندوز](https://github.com/davidkordmir-source/AD/actions/workflows/build-offline-windows.yml)
 
-[تصویر رابط و نقشه](FastViewshed_GUI_Windows/GUI_v330.png) · [تصویر بخش خروجی و انتخاب نام](FastViewshed_GUI_Windows/GUI_v330_output.png)
+[تصویر رابط و نقشهٔ جدید](FastViewshed_GUI_Windows/GUI_v340.png) · [تصویر صفحهٔ شروع](FastViewshed_GUI_Windows/SPLASH_v340.png)

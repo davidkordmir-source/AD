@@ -1,60 +1,20 @@
 {
-  "application": "Fast Viewshed 3.3.0",
-  "tests": 72,
-  "passed": 72,
-  "failed": 0,
-  "tested_platform": "Linux / GDAL 3.10.3 / Qt offscreen",
-  "new_checks": [
-    "Shared SHP named from a selected attribute value, with all observers retained",
-    "Windows-safe and collision-safe shared names",
-    "All invalid rows still produce the selected empty shared SHP",
-    "212 OSM country boundaries loaded from bundled local data",
-    "Three colored bold sections, application aircraft icon",
-    "Mouse wheel over radius scrolls the form without changing the value",
-    "Georeferenced GDAL map overlays with selectable class display"
-  ],
-  "windows_report": "Windows installer validation published separately after native installation tests.",
-  "windows_installer": {
-    "uninstall_tested": true,
-    "aircraft_icon": true,
-    "desktop_shortcut": true,
-    "per_user_install": true,
-    "uninstall_registered": true,
-    "installed_gui": {
-      "status": "passed",
-      "executable": "D:\\a\\_temp\\Fast Viewshed installed with spaces\\runtime_offline\\pythonw.exe",
-      "version": "3.3.0",
-      "gui_visible": true,
-      "icon_loaded": true,
-      "offline_map_countries": 212,
-      "highlighted_groups": 3,
-      "combined_naming_controls": true
-    },
-    "firewall_blocked": true,
-    "native_gis": {
-      "status": "passed",
-      "offline": true,
-      "python": "3.12.15 | packaged by conda-forge | (main, Oct 13 2026, 16:44:09) [MSC v.1944 64 bit (AMD64)]",
-      "executable": "D:\\a\\_temp\\Fast Viewshed installed with spaces\\runtime_offline\\python.exe",
-      "gdal": "3.10.3",
-      "qt": "6.10.2",
-      "numpy": "2.5.4",
-      "proj_network": false,
-      "private_runtime": true,
-      "shapefile_round_trip": true,
-      "transmitter_receiver_regression": true,
-      "gui_worker": true,
-      "previews": 2,
-      "invalid_record_skipping": true,
-      "all_invalid_empty_shapefile": true,
-      "skip_report_written": true,
-      "combined_attribute_filename": true,
-      "offline_osm_map": true,
-      "aircraft_icon": true
-    },
-    "offline": true,
-    "status": "passed",
-    "version": "3.3.0"
+  "version": "3.4.0",
+  "status": "passed",
+  "local_ui_tests": 10,
+  "windows_installer_validation": "validation/windows-installer-v3.4.0.json",
+  "windows_offline_validation": "validation/windows-offline-v3.4.0.json",
+  "github_actions_run": "https://github.com/davidkordmir-source/AD/actions/runs/39759902542",
+  "default_map": {
+    "area_features": 255,
+    "point_features": 4255,
+    "crs": "EPSG:4326",
+    "source": "user-uploaded area and point shapefiles"
   },
-  "setup_sha256": "eb282d59f589dba7396fe03f131b2f220034b09f8e6a59b7c95793b7a909cc5a"
+  "features": [
+    "offline custom map import",
+    "protected UI personalization",
+    "custom startup logo",
+    "Windows installer and desktop shortcut"
+  ]
 }

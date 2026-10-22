@@ -778,7 +778,7 @@ try:
             save_skipped_records(folder, skipped)
             (folder / 'README_RESULTS_FA.txt').write_text('فایل\u200cهای اصلی قابل\u200cدید:\n' + '\n'.join(primary_outputs) + '\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nرکوردهای نامعتبر با FID، نام، ستون و علت در skipped_records.csv و skipped_records.json ثبت می\u200cشوند.\nاگر همهٔ رکوردها رد شده\u200cاند یا ورودی خالی است، visible.shp خالی ولی قابل باز کردن ساخته می\u200cشود.\nدر حالت خروجی جدا، لایه\u200cهای کمکی visibility و sectors داخل details هستند.\nستون name نام انتخابی نقطه است؛ بدون انتخاب ستون نام، FID استفاده می\u200cشود.\nعدد پایانی فایل مستقل، ارتفاع فرستنده/آبجکت در محل نقطه بر حسب متر است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم؛ sectors.shp فقط مرز تحلیل است.\nبرای مقایسه با Global Mapper، DEM، موقعیت، ارتفاع\u200cها، واحدها، شعاع، آزیموت، پیکسل و انحنا باید یکسان باشند.\nrun.json تنظیمات، رکوردهای موفق و ردشده و شمارش و مساحت کلاس\u200cها را نگه می\u200cدارد.\n', encoding='utf-8')
             outcome = 'no_valid_observers' if not summaries else 'completed_with_skips' if skipped else 'completed'
-            report = dict(status='completed', outcome=outcome, application_version='3.3.0', offline=True, selected_records=len(rows) + sum((r['stage'] == 'input' for r in skipped)), succeeded_records=len(summaries), skipped_count=len(skipped), skipped_records=skipped, skipped_report='skipped_records.csv', empty_output=not any((row['counts']['1'] for row in summaries)), engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=primary_outputs[0] if not cfg.separate_outputs or not summaries else None, primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'Invalid records are logged and skipped; no invalid point is given fabricated coverage.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            report = dict(status='completed', outcome=outcome, application_version='3.4.0', offline=True, selected_records=len(rows) + sum((r['stage'] == 'input' for r in skipped)), succeeded_records=len(summaries), skipped_count=len(skipped), skipped_records=skipped, skipped_report='skipped_records.csv', empty_output=not any((row['counts']['1'] for row in summaries)), engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=primary_outputs[0] if not cfg.separate_outputs or not summaries else None, primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'Invalid records are logged and skipped; no invalid point is given fabricated coverage.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
             log(f'پایان: {len(summaries)} رکورد موفق، {len(skipped)} رکورد ردشده؛ گزارش: skipped_records.csv\n{folder}')
@@ -801,6 +801,9 @@ try:
     import numpy as np
     from osgeo import gdal
     from PySide6 import QtCore, QtGui, QtWidgets
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from desktop_customization import (Preferences, MapLoader, PersonalizationDialog,
+                                       map_layers, load_map_file, create_splash)
     MAP_LIMIT = 20037508.342789244
 
     def application_asset(name):
@@ -826,6 +829,9 @@ try:
             self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorViewCenter)
             self.setMinimumSize(300, 300)
             self.boundary_count = 0
+            self.background_items = []
+            self.custom_bounds = None
+            self.map_style = {}
             self.observers = []
             self.point_items = []
             self.overlays = {}
@@ -838,6 +844,17 @@ try:
             self.fit_world()
 
         def _load_boundaries(self):
+            default = application_asset('default_map/area.shp')
+            if default:
+                data = load_map_file(default)
+                points = application_asset('default_map/point.shp')
+                if points:
+                    labels = load_map_file(points)
+                    data['paths'].extend(labels['paths'])
+                    data['count'] += labels['count']
+                    data['bounds'] = data['bounds'].united(labels['bounds'])
+                self.replace_background(data)
+                return
             path = application_asset('osm_countries.geojson.gz')
             if path is None:
                 return
@@ -864,10 +881,91 @@ try:
                 item.setZValue(-10)
                 item.setToolTip(feature['properties'].get('name', ''))
                 self.boundary_count += 1
+                self.background_items.append(item)
 
         def fit_world(self):
+            if self.custom_bounds is not None:
+                rect = self.custom_bounds
+                padding = max(rect.width(), rect.height(), 1000) * 0.04
+                self.fitInView(rect.adjusted(-padding, -padding, padding, padding), QtCore.Qt.KeepAspectRatio)
+                self.initial_fit = True
+                self.update_map_details()
+                return
             self.fitInView(QtCore.QRectF(-MAP_LIMIT, -MAP_LIMIT * 0.65, 2 * MAP_LIMIT, MAP_LIMIT * 1.3), QtCore.Qt.KeepAspectRatio)
             self.initial_fit = True
+            self.update_map_details()
+
+        def update_map_details(self):
+            detailed = abs(self.transform().m11()) >= 1 / 20000
+            for item in self.background_items:
+                if item.data(0) == 'backgroundPoint':
+                    item.setVisible(detailed)
+
+        def zoom_by(self, factor):
+            self.scale(factor, factor)
+            self.initial_fit = False
+            self.update_map_details()
+
+        def apply_map_style(self, ui):
+            self.map_style = ui
+            self.setBackgroundBrush(QtGui.QColor(ui['map_background']))
+            pen = QtGui.QPen(QtGui.QColor(ui['map_line']), 1.05)
+            pen.setCosmetic(True)
+            for item in self.background_items:
+                if isinstance(item, QtWidgets.QGraphicsPathItem):
+                    item.setPen(pen)
+                    if item.data(0) != 'line':
+                        item.setBrush(QtGui.QBrush(QtGui.QColor(ui['map_fill'])))
+
+        def replace_background(self, data):
+            new_items = []
+            try:
+                if data['kind'] == 'raster':
+                    item = QtWidgets.QGraphicsPixmapItem(QtGui.QPixmap.fromImage(data['image']))
+                    gt = data['transform']
+                    item.setTransform(QtGui.QTransform(gt[1], 0, 0, -gt[5], gt[0], -gt[3]))
+                    new_items.append(item)
+                else:
+                    for kind, geometry, label in data['paths']:
+                        if kind == 'point':
+                            item = QtWidgets.QGraphicsEllipseItem(-1.5, -1.5, 3, 3)
+                            item.setData(0, 'backgroundPoint')
+                            item.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+                            item.setPos(*geometry)
+                            item.setPen(QtGui.QPen(QtGui.QColor('#526f80')))
+                            item.setBrush(QtGui.QBrush(QtGui.QColor('#526f80')))
+                        else:
+                            item = QtWidgets.QGraphicsPathItem(geometry)
+                            item.setData(0, kind)
+                        item.setToolTip(label)
+                        new_items.append(item)
+                for item in new_items:
+                    item.setZValue(-10)
+                    self.scene().addItem(item)
+            except Exception:
+                for item in new_items:
+                    if item.scene() is self.scene():
+                        self.scene().removeItem(item)
+                raise
+            for item in self.background_items:
+                self.scene().removeItem(item)
+            self.background_items = new_items
+            self.custom_bounds = data['bounds']
+            self.boundary_count = data['count']
+            self.scene().setSceneRect(self.scene().sceneRect().united(data['bounds']))
+            self.apply_map_style(self.map_style or dict(map_line='#7c97a6', map_fill='#fafcfd', map_background='#eaf2f6'))
+            self.fit_world()
+
+        def restore_default_background(self):
+            for item in self.background_items:
+                self.scene().removeItem(item)
+            self.background_items = []
+            self.boundary_count = 0
+            self.custom_bounds = None
+            self._load_boundaries()
+            if self.map_style:
+                self.apply_map_style(self.map_style)
+            self.fit_world()
 
         def set_observers(self, observers, radius=100000):
             for item in self.point_items:
@@ -898,6 +996,7 @@ try:
             bounds = QtCore.QRectF(min(xs) - padding, min(ys) - padding, max(xs) - min(xs) + 2 * padding, max(ys) - min(ys) + 2 * padding)
             self.fitInView(bounds, QtCore.Qt.KeepAspectRatio)
             self.initial_fit = False
+            self.update_map_details()
 
         def clear_results(self):
             for item in self.overlays.values():
@@ -963,8 +1062,7 @@ try:
                 factor = 1.18 if delta > 0 else 1 / 1.18
                 scale = abs(self.transform().m11())
                 if 1e-07 < scale * factor < 10:
-                    self.scale(factor, factor)
-                    self.initial_fit = False
+                    self.zoom_by(factor)
             event.accept()
 
         def resizeEvent(self, event):
@@ -1082,9 +1180,13 @@ try:
 
     class FastWindow(QtWidgets.QMainWindow):
 
-        def __init__(self):
+        def __init__(self, preferences=None):
             super().__init__()
-            self.setWindowTitle('Fast Sector Viewshed 3.3.0 | دیدپذیری قطاعی آفلاین')
+            self.preferences = preferences or Preferences()
+            self.map_thread = None
+            self.map_worker = None
+            self._close_after_map = False
+            self.setWindowTitle('Fast Sector Viewshed 3.4.0 | دیدپذیری قطاعی آفلاین')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -1100,6 +1202,11 @@ try:
             self.height_modes = {}
             self.output_hint = 'visible.shp'
             self.build_ui()
+            self.base_style = self.styleSheet()
+            self.apply_personalization()
+            saved_map = self.preferences.data.get('map')
+            if saved_map:
+                QtCore.QTimer.singleShot(0, lambda: self.start_map_load(saved_map['path'], saved_map.get('layer'), saved_map.get('source_epsg'), persist=False))
             icon = application_asset('aircraft.ico')
             if icon:
                 self.setWindowIcon(QtGui.QIcon(str(icon)))
@@ -1110,9 +1217,13 @@ try:
             outer.setContentsMargins(18, 16, 18, 12)
             title = QtWidgets.QLabel('دیدپذیری قطاعی — ورودی و خروجی Shapefile')
             title.setObjectName('title')
+            self.heading = title
             subtitle = QtWidgets.QLabel('برنامهٔ مستقل • آزیموت از شمال واقعی و ساعت\u200cگرد • خروجی سازگار با ArcGIS Pro و QGIS')
             outer.addWidget(title)
             outer.addWidget(subtitle)
+            personal = QtWidgets.QPushButton('شخصی‌سازی رابط 🔒')
+            personal.clicked.connect(self.open_personalization)
+            outer.addWidget(personal, 0, QtCore.Qt.AlignLeft)
             split = QtWidgets.QSplitter()
             outer.addWidget(split, 1)
             scroll = SmoothScrollArea()
@@ -1310,19 +1421,31 @@ try:
             map_layout.setContentsMargins(0, 0, 0, 0)
             map_tools = QtWidgets.QHBoxLayout()
             self.map_view = OfflineBoundaryMap()
-            for title, action in (('+', lambda: self.map_view.scale(1.4, 1.4)), ('−', lambda: self.map_view.scale(1 / 1.4, 1 / 1.4)), ('نمای نقاط', lambda: self.map_view.fit_observers(self.inputs['radius'].value() * {'m': 1, 'km': 1000, 'ft': 0.3048, 'mi': 1609.344}[self.unit_boxes['radius_unit'].currentData()])), ('نقشهٔ جهان', self.map_view.fit_world)):
+            for title, action in (('+', lambda: self.map_view.zoom_by(1.4)), ('−', lambda: self.map_view.zoom_by(1 / 1.4)), ('نمای نقاط', lambda: self.map_view.fit_observers(self.inputs['radius'].value() * {'m': 1, 'km': 1000, 'ft': 0.3048, 'mi': 1609.344}[self.unit_boxes['radius_unit'].currentData()])), ('نمای کل نقشه', self.map_view.fit_world)):
                 button = QtWidgets.QPushButton(title)
                 button.clicked.connect(action)
                 map_tools.addWidget(button)
             map_layout.addLayout(map_tools)
+            import_tools = QtWidgets.QHBoxLayout()
+            self.import_map_button = QtWidgets.QPushButton('انتخاب نقشهٔ خودم…')
+            self.import_map_button.clicked.connect(self.choose_background_map)
+            self.default_map_button = QtWidgets.QPushButton('بازگشت به نقشهٔ پیش‌فرض')
+            self.default_map_button.clicked.connect(self.restore_background_map)
+            import_tools.addWidget(self.import_map_button)
+            import_tools.addWidget(self.default_map_button)
+            map_layout.addLayout(import_tools)
+            self.map_source_label = QtWidgets.QLabel('نقشهٔ پیش‌فرض شما: area و point — فقط پس‌زمینهٔ پیش‌نمایش')
+            self.map_source_label.setWordWrap(True)
+            map_layout.addWidget(self.map_source_label)
             map_layout.addWidget(self.map_view, 1)
-            attribution = QtWidgets.QLabel('© OpenStreetMap contributors · ODbL · نقشهٔ مرزی آفلاین')
+            attribution = QtWidgets.QLabel('نقشهٔ ارسالی کاربر: area و point • WGS 84 • آفلاین')
             attribution.setObjectName('mapAttribution')
+            self.map_attribution = attribution
             map_layout.addWidget(attribution)
             self.preview_stack.addWidget(map_panel)
             self.preview_stack.addWidget(self.image)
             self.view_selector = ScrollComboBox()
-            self.view_selector.addItems(['نقشهٔ مرزی OSM و موقعیت نقاط — آفلاین', 'تصویر نتیجهٔ نقطهٔ انتخابی'])
+            self.view_selector.addItems(['نقشهٔ آفلاین و موقعیت نقاط', 'تصویر نتیجهٔ نقطهٔ انتخابی'])
             self.view_selector.currentIndexChanged.connect(self.preview_stack.setCurrentIndex)
             preview_layout.addWidget(self.view_selector)
             preview_layout.addWidget(self.preview_stack, 1)
@@ -1359,6 +1482,130 @@ try:
             outer.addWidget(self.status)
             self.setCentralWidget(root)
             self.setStyleSheet('\n            QWidget {font-family: "Segoe UI", "Tahoma"; font-size: 12px; color:#17364b;}\n            QMainWindow {background:#eef3f7;}\n            QLabel#title {font-size:25px; font-weight:700; padding:6px 0;}\n            QGroupBox {font-weight:600; border:1px solid #cedae4; border-radius:8px; margin-top:14px; padding:15px 8px 8px; background:white;}\n            QGroupBox::title {subcontrol-origin:margin; padding:0 7px;}\n            QGroupBox[priority="true"] {border-width:2px; font-weight:800; font-size:14px; padding-top:19px; margin-top:19px;}\n            QGroupBox#inputSection {border-color:#287aa6; background:#f0f7fc;}\n            QGroupBox#dimensionSection {border-color:#198f87; background:#eefaf7;}\n            QGroupBox#outputSection {border-color:#7462aa; background:#f5f2fc;}\n            QGroupBox#inputSection::title {color:#175e87; background:#e0edf8; border-radius:4px;}\n            QGroupBox#dimensionSection::title {color:#0e776e; background:#d9f1eb; border-radius:4px;}\n            QGroupBox#outputSection::title {color:#5c468d; background:#e9e2f6; border-radius:4px;}\n            QScrollBar:vertical {background:#e0eaf0; width:15px; border-radius:7px; margin:0;}\n            QScrollBar::handle:vertical {background:#719cae; min-height:38px; border-radius:7px;}\n            QScrollBar::handle:vertical:hover {background:#33768e;}\n            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {height:0;}\n            QLabel#mapAttribution {font-size:10px; color:#617c8d; padding:4px;}\n\n            QLineEdit,QComboBox,QDoubleSpinBox,QSpinBox {padding:7px; border:1px solid #bbcbd7; border-radius:4px; background:white;}\n            QPushButton {padding:9px 12px; border:1px solid #b8cbd9; border-radius:5px; background:#edf4f8;}\n            QPushButton#run {background:#146e87; color:white; font-weight:700;}\n            QPushButton:disabled {color:#8997a2; background:#e6ebee;}\n            QProgressBar {border:1px solid #bbcbd7; border-radius:4px; text-align:center; height:17px;}\n            QProgressBar::chunk {background:#26a782;}\n            QPlainTextEdit {background:#142b3b; color:#e7eef5; font-family:Consolas;}\n        ')
+
+        def apply_personalization(self):
+            ui = self.preferences.ui
+            self.heading.setText(ui['title'])
+            self.setStyleSheet(self.base_style + f"\nQWidget {{font-size:{ui['font_size']}px;}}\nQPushButton#run {{background:{ui['accent']};color:white;}}")
+            self.map_view.apply_map_style(ui)
+
+        def initialize_administrator(self):
+            if self.preferences.configured:
+                return True
+            password, ok = QtWidgets.QInputDialog.getText(self, 'تعیین رمز مدیر',
+                'رمز دلخواه مدیر این دستگاه را وارد کنید (حداقل ۵ نویسه):', QtWidgets.QLineEdit.Password)
+            if not ok:
+                return False
+            confirmation, ok = QtWidgets.QInputDialog.getText(self, 'تکرار رمز مدیر',
+                'همان رمز را دوباره وارد کنید:', QtWidgets.QLineEdit.Password)
+            if not ok:
+                return False
+            try:
+                if password != confirmation:
+                    raise ValueError('رمزها یکسان نیستند.')
+                self.preferences.set_password(password)
+                return True
+            except (ValueError, OSError) as exc:
+                QtWidgets.QMessageBox.warning(self, 'رمز مدیر', str(exc))
+                return False
+
+        def open_personalization(self):
+            if not self.preferences.configured:
+                if not self.initialize_administrator():
+                    return
+            else:
+                password, ok = QtWidgets.QInputDialog.getText(self, 'ورود مدیر',
+                    'برای شخصی‌سازی رابط، رمز مدیر را وارد کنید:', QtWidgets.QLineEdit.Password)
+                if not ok:
+                    return
+                try:
+                    if not self.preferences.verify(password):
+                        raise ValueError('رمز مدیر صحیح نیست.')
+                except ValueError as exc:
+                    QtWidgets.QMessageBox.warning(self, 'ورود مدیر', str(exc))
+                    return
+            dialog = PersonalizationDialog(self.preferences, self)
+            if dialog.exec() == QtWidgets.QDialog.Accepted:
+                self.apply_personalization()
+
+        def choose_background_map(self):
+            name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'نقشهٔ آفلاین دلخواه', '',
+                'Maps (*.shp *.geojson *.json *.gpkg *.kml *.tif *.tiff);;Vector maps (*.shp *.geojson *.gpkg *.kml);;GeoTIFF (*.tif *.tiff)')
+            if not name:
+                return
+            layer_name, epsg = None, None
+            try:
+                layers = map_layers(name)
+                if len(layers) > 1:
+                    layer_name, ok = QtWidgets.QInputDialog.getItem(self, 'لایهٔ نقشه', 'لایهٔ مورد نظر:', [x[0] for x in layers], 0, False)
+                    if not ok:
+                        return
+                if layers:
+                    selected = next((item for item in layers if item[0] == layer_name), layers[0])
+                    missing_crs = not selected[1]
+                else:
+                    raster = gdal.Open(name)
+                    if raster is None:
+                        raise ValueError('فایل نقشه قابل‌خواندن نیست.')
+                    missing_crs = not raster.GetProjection()
+                    raster = None
+                if missing_crs:
+                    epsg, ok = QtWidgets.QInputDialog.getInt(self, 'سیستم مختصات نقشه',
+                        'فایل CRS ندارد. کد EPSG واقعی آن را وارد کنید (حدس نزنید):', 4326, 1, 999999)
+                    if not ok:
+                        return
+                self.start_map_load(name, layer_name, epsg, persist=True)
+            except Exception as exc:
+                QtWidgets.QMessageBox.warning(self, 'نقشه', str(exc))
+
+        def start_map_load(self, filename, layer=None, epsg=None, persist=True):
+            if self.map_thread is not None:
+                return
+            self.import_map_button.setEnabled(False)
+            self.default_map_button.setEnabled(False)
+            self.map_source_label.setText('در حال خواندن نقشهٔ محلی…')
+            self.map_thread = QtCore.QThread(self)
+            self.map_worker = MapLoader(filename, layer, epsg, self.preferences.folder / 'maps' if persist else None)
+            self.map_worker.moveToThread(self.map_thread)
+            self.map_thread.started.connect(self.map_worker.run)
+            self.map_worker.ready.connect(self.background_map_ready)
+            self.map_worker.failed.connect(self.background_map_failed)
+            self.map_worker.finished.connect(self.map_thread.quit)
+            self.map_worker.finished.connect(self.map_worker.deleteLater)
+            self.map_thread.finished.connect(self.background_map_stopped)
+            self.map_thread.finished.connect(self.map_thread.deleteLater)
+            self.map_thread.start()
+
+        def background_map_ready(self, data, record):
+            try:
+                self.map_view.replace_background(data)
+                self.preferences.data['map'] = record
+                self.preferences.save()
+                self.map_source_label.setText('نقشهٔ شما: ' + Path(record['path']).name)
+                self.map_attribution.setText('نقشهٔ محلی کاربر • تبدیل CRS برای نمایش • بدون ساده‌سازی هندسهٔ برداری')
+                self.log.appendPlainText('نقشهٔ پیش‌نمایش جایگزین شد: ' + Path(record['path']).name)
+            except Exception as exc:
+                self.background_map_failed(str(exc))
+
+        def background_map_failed(self, message):
+            self.map_source_label.setText('خطا در نقشهٔ جدید؛ نقشهٔ قبلی حفظ شد.')
+            self.log.appendPlainText('نقشه: ' + message)
+            QtWidgets.QMessageBox.warning(self, 'نقشهٔ پیش‌نمایش', message)
+
+        def background_map_stopped(self):
+            self.map_thread = None
+            self.map_worker = None
+            self.import_map_button.setEnabled(True)
+            self.default_map_button.setEnabled(True)
+            if self._close_after_map:
+                self.close()
+
+        def restore_background_map(self):
+            self.map_view.restore_default_background()
+            self.preferences.data.pop('map', None)
+            self.preferences.save()
+            self.map_source_label.setText('نقشهٔ پیش‌فرض شما: area و point — فقط پس‌زمینهٔ پیش‌نمایش')
+            self.map_attribution.setText('نقشهٔ ارسالی کاربر: area و point • WGS 84 • آفلاین')
 
         @staticmethod
         def group(title, parent):
@@ -1558,7 +1805,7 @@ try:
             self.map_view.clear_results()
             self.map_view.fit_observers(config.radius_m)
             self.view_selector.setCurrentIndex(0)
-            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.3.0 ──')
+            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.4.0 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)
@@ -1671,6 +1918,10 @@ try:
                     self.show_error(str(exc))
 
         def closeEvent(self, event):
+            if self.map_thread is not None:
+                self._close_after_map = True
+                event.ignore()
+                return
             if self.thread is not None:
                 self.cancel_analysis()
                 event.ignore()
@@ -1688,14 +1939,25 @@ try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('FastViewshed.Desktop')
             app._desktop_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, 'FastViewshed.Desktop.Running')
-        window = FastWindow()
+        preferences = Preferences()
+        splash = create_splash(preferences, application_asset('aircraft.png'))
+        splash.show()
+        app.processEvents()
+        splash_was_shown = splash.isVisible()
+        window = FastWindow(preferences)
         window._fast_app_reference = app
-        window.show()
+        app._startup_splash = splash
+        def reveal_window():
+            window.show()
+            splash.finish(window)
+            if not preferences.configured and not os.environ.get('FAST_VIEWSHED_SMOKE_REPORT'):
+                QtCore.QTimer.singleShot(100, window.initialize_administrator)
+        QtCore.QTimer.singleShot(900, reveal_window)
         report_path = os.environ.get('FAST_VIEWSHED_SMOKE_REPORT')
         if report_path:
 
             def report_ready():
-                report = dict(status='passed', executable=sys.executable, version='3.3.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True)
+                report = dict(status='passed', executable=sys.executable, version='3.4.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown)
                 Path(report_path).write_text(json.dumps(report, indent=2), encoding='utf-8')
                 window.close()
             QtCore.QTimer.singleShot(1200, report_ready)

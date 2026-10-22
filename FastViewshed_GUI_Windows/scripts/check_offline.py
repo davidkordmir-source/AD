@@ -120,7 +120,10 @@ def main():
 
         # Start the actual GUI, read fields and drive its real worker thread.
         qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-        window = application["FastWindow"]()
+        import desktop_customization as desktop
+        preferences = desktop.Preferences(root/'profile')
+        assert preferences.configured
+        window = application['FastWindow'](preferences)
         window.inputs["points"].setText(str(points))
         window.load_fields()
         window.inputs["start_field"].setCurrentText("AZFR")
@@ -154,13 +157,56 @@ def main():
             raise RuntimeError("GUI worker timed out during offline verification.")
         if not window.result_folder or window.preview_selector.count() != 2:
             raise RuntimeError(window.log.toPlainText())
+        # Replace the shipped world map using a real projected SHP on the map worker.
+        assert window.map_view.boundary_count == 4510
+        window.start_map_load(str(points))
+        map_loop = QtCore.QEventLoop()
+        map_poll = QtCore.QTimer()
+        map_poll.setInterval(20)
+        map_poll.timeout.connect(lambda: map_loop.quit() if window.map_thread is None else None)
+        map_timeout = QtCore.QTimer()
+        map_timeout.setSingleShot(True)
+        map_timeout.timeout.connect(map_loop.quit)
+        map_poll.start()
+        map_timeout.start(60000)
+        map_loop.exec()
+        map_poll.stop()
+        map_timeout.stop()
+        assert window.map_thread is None
+        assert window.map_view.boundary_count == 2
+        assert len(window.map_view.overlays) == 2
+        saved_map = Path(preferences.data['map']['path'])
+        assert saved_map.is_file() and saved_map.with_suffix('.prj').is_file()
+        window.restore_background_map()
+        assert window.map_view.boundary_count == 4510
+        # Exercise local logo persistence, rendering and password verification offline.
+        from PySide6 import QtGui
+        logo = QtGui.QImage(100, 80, QtGui.QImage.Format_RGB32)
+        logo.fill(QtGui.QColor('#e02070'))
+        logo_file = root/'test_company_logo.png'
+        assert logo.save(str(logo_file))
+        copied = preferences.copy_logo(logo_file)
+        preferences.data['ui'] = dict(logo=copied, title='Offline custom title', font_size=14, accent='#554488')
+        preferences.save()
+        logo_file.unlink()
+        preferences.set_password('offline-test-admin')
+        assert not preferences.verify('incorrect-password')
+        assert preferences.verify('offline-test-admin')
+        window.apply_personalization()
+        assert window.heading.text() == 'Offline custom title'
+        splash = desktop.create_splash(preferences)
+        splash.show()
+        qt.processEvents()
+        assert splash.isVisible()
+        assert splash.pixmap().toImage().pixelColor(310, 100).name() == '#e02070'
+        splash.close()
         window.close()
         qt.processEvents()
     report = dict(status="passed", offline=True, python=sys.version, executable=str(Path(sys.executable)),
                   gdal=gdal.VersionInfo("RELEASE_NAME"), qt=QtCore.qVersion(), numpy=np.__version__,
                   proj_network=False, private_runtime=True, shapefile_round_trip=True,
                   transmitter_receiver_regression=True, gui_worker=True, previews=2, invalid_record_skipping=True,
-                  all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=True, aircraft_icon=True)
+                  all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=False, aircraft_icon=True, default_user_map_features=4510, custom_map_import=True, protected_personalization=True, custom_logo_splash=True)
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("Offline runtime verification passed: GDAL, NumPy, Qt, real viewshed and GUI.")
 

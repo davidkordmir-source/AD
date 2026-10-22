@@ -1,0 +1,1 @@
+User-supplied world boundary and point maps. Original geometry retained without simplification. WGS 84 (EPSG:4326). area: 255 features; point: 4255 features. Imported 2026-10-22.

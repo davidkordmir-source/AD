@@ -1,4 +1,4 @@
-param([string]$Stage, [string]$Output, [string]$Version = '3.3.0')
+param([string]$Stage, [string]$Output, [string]$Version = '3.4.0')
 $ErrorActionPreference = 'Stop'
 $appRoot = Split-Path -Parent $PSScriptRoot
 $stagePath = (Resolve-Path -LiteralPath $Stage).Path

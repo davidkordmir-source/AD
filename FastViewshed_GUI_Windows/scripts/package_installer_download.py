@@ -51,7 +51,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--installer", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument('--version', default='3.3.0')
+    parser.add_argument('--expected-sha256', default=INSTALLER_SHA256)
     args = parser.parse_args()
+    expected = args.expected_sha256
     args.output.mkdir(parents=True, exist_ok=True)
     installer = args.installer
     if installer is None:
@@ -59,22 +62,22 @@ def main():
         with urllib.request.urlopen(INSTALLER_URL, timeout=90) as source:
             with installer.open("wb") as target:
                 shutil.copyfileobj(source, target)
-    if digest(installer) != INSTALLER_SHA256:
+    if digest(installer) != expected:
         raise ValueError("Installer SHA256 does not match the verified release.")
     with installer.open("rb") as source:
         if source.read(2) != b"MZ":
             raise ValueError("Installer is not a Windows executable.")
-    archive = args.output / ARCHIVE_NAME
+    archive = args.output / f'00_FastViewshed_Windows_Setup_v{args.version}.zip'
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as package:
         package.write(installer, "Setup.exe")
-        package.writestr("INSTALL_FA.txt", INSTRUCTIONS_FA.encode("utf-8-sig"))
-        package.writestr("INSTALL_EN.txt", INSTRUCTIONS_EN)
-        package.writestr("SETUP_SHA256.txt", INSTALLER_SHA256 + "  Setup.exe\n")
+        package.writestr("INSTALL_FA.txt", INSTRUCTIONS_FA.replace("3.3.0", args.version).encode("utf-8-sig"))
+        package.writestr("INSTALL_EN.txt", INSTRUCTIONS_EN.replace("3.3.0", args.version))
+        package.writestr("SETUP_SHA256.txt", expected + "  Setup.exe\n")
     with zipfile.ZipFile(archive) as package:
         if package.testzip() is not None:
             raise ValueError("ZIP integrity check failed.")
         with package.open("Setup.exe") as source:
-            if hashlib.file_digest(source, "sha256").hexdigest() != INSTALLER_SHA256:
+            if hashlib.file_digest(source, "sha256").hexdigest() != expected:
                 raise ValueError("Archived Setup.exe differs from the verified installer.")
     checksum = args.output / "WINDOWS_SETUP_ZIP_SHA256.txt"
     checksum.write_text(digest(archive) + "  " + archive.name + "\n", encoding="ascii")

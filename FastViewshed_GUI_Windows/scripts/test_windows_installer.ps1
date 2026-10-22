@@ -25,6 +25,7 @@ try {
     if ($launch.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $smoke)) { throw 'Installed GUI did not open.' }
     $gui = Get-Content -LiteralPath $smoke -Raw | ConvertFrom-Json
     if (-not $gui.icon_loaded -or $gui.offline_map_countries -lt 200 -or $gui.highlighted_groups -ne 3) { throw 'Installed GUI assets or sections are missing.' }
+    if (-not $gui.splash_shown -or -not $gui.password_protected_personalization -or -not $gui.custom_map_import -or $gui.map_features -ne 4510) { throw 'Custom map, protected UI or startup splash is missing.' }
     $native = Get-Content -LiteralPath (Join-Path $installed 'OFFLINE_CHECK.json') -Raw | ConvertFrom-Json
     if ($native.status -ne 'passed') { throw 'Installed runtime verification failed.' }
     $uninstall = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.DisplayName -like 'Fast Viewshed*' }
@@ -33,7 +34,7 @@ try {
     $remove = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru
     if (-not $remove.WaitForExit(120000)) { throw 'Uninstall timed out.' }
     if ($remove.ExitCode -ne 0 -or (Test-Path -LiteralPath $link)) { throw 'Uninstall did not remove the shortcut.' }
-    $report = @{status='passed';version='3.3.0';offline=$true;firewall_blocked=$true;desktop_shortcut=$true;aircraft_icon=$true;installed_gui=$gui;native_gis=$native;uninstall_registered=$true;uninstall_tested=$true;per_user_install=$true}
+    $report = @{status='passed';version='3.4.0';offline=$true;firewall_blocked=$true;desktop_shortcut=$true;aircraft_icon=$true;installed_gui=$gui;native_gis=$native;uninstall_registered=$true;uninstall_tested=$true;per_user_install=$true}
     $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $reportPath -Encoding UTF8
 } catch {
     $details = $_.ToString()

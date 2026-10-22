@@ -23,4 +23,3 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           gh release upload v3.3.0-installer /tmp/windows-setup/00_FastViewshed_Windows_Setup_v3.3.0.zip /tmp/windows-setup/WINDOWS_SETUP_ZIP_SHA256.txt --clobber
-          gh release edit v3.3.0-installer --notes-file FastViewshed_GUI_Windows/RELEASE_OFFLINE.md

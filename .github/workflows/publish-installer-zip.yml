@@ -1,0 +1,26 @@
+name: Publish clearly named Windows Setup download
+on:
+  push:
+    branches: [fast-viewshed-gui]
+    paths: ['.github/workflows/publish-installer-zip.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  installer-download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify existing installer and package Setup.exe with installation instructions
+        run: python FastViewshed_GUI_Windows/scripts/package_installer_download.py --output /tmp/windows-setup
+      - name: Publish installer ZIP beside the original tested EXE
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload v3.3.0-installer /tmp/windows-setup/00_FastViewshed_Windows_Setup_v3.3.0.zip /tmp/windows-setup/WINDOWS_SETUP_ZIP_SHA256.txt --clobber
+          gh release edit v3.3.0-installer --notes-file FastViewshed_GUI_Windows/RELEASE_OFFLINE.md

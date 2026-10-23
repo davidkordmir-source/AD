@@ -6,7 +6,7 @@ from pathlib import Path
 import zipfile
 
 BASE_SHA256 = '3cbda5270181774d6d13dca8409f1c3e9de4a0aa53aa878c408f2e97394dc3ab'
-ARCHIVE_NAME = 'FastViewshed_Private_Logo_Kit_v3.4.0.zip'
+ARCHIVE_NAME = 'FastViewshed_Private_Logo_Kit_v3.4.0_v2.zip'
 PREFIX = 'FastViewshed_Private_Logo_Kit/'
 ROOT = Path(__file__).resolve().parent.parent
 

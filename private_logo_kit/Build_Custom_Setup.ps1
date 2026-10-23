@@ -1,12 +1,38 @@
-param([string]$OutputDirectory)
+param([string]$OutputDirectory, [string]$LogoFile, [switch]$NonInteractive)
 $ErrorActionPreference = 'Stop'
 $work = $null
 try {
     $kit = $PSScriptRoot
-    $logo = Join-Path $kit 'Logo_Input\logo.png'
-    if (-not (Test-Path -LiteralPath $logo -PathType Leaf)) {
-        throw 'Put your PNG logo in Logo_Input\logo.png, then run Build_Custom_Setup.bat again.'
+    $logoFolder = Join-Path $kit 'Logo_Input'
+    if ($LogoFile) {
+        $logo = [IO.Path]::GetFullPath($LogoFile)
+    } else {
+        $candidates = @()
+        if (Test-Path -LiteralPath $logoFolder -PathType Container) {
+            $candidates = @(Get-ChildItem -LiteralPath $logoFolder -File -Force | Where-Object { $_.Extension -ieq '.png' })
+        }
+        if ($candidates.Count -eq 1) {
+            $logo = $candidates[0].FullName
+        } elseif ($NonInteractive) {
+            if ($candidates.Count -eq 0) { throw ('No PNG image found. Searched folder: ' + $logoFolder) }
+            throw ('Multiple PNG images found in ' + $logoFolder + '. Keep one image or pass -LogoFile with its full path.')
+        } else {
+            Write-Host ('PNG input folder: ' + $logoFolder)
+            Write-Host 'Select your logo in the file window. Nothing will be uploaded.'
+            Add-Type -AssemblyName System.Windows.Forms
+            $picker = New-Object System.Windows.Forms.OpenFileDialog
+            try {
+                $picker.Title = 'Choose your private PNG logo (local file only)'
+                $picker.Filter = 'PNG images (*.png)|*.png|All files (*.*)|*.*'
+                $picker.InitialDirectory = $kit
+                if (Test-Path -LiteralPath $logoFolder -PathType Container) { $picker.InitialDirectory = $logoFolder }
+                if ($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { throw 'Logo selection cancelled. No installer was changed.' }
+                $logo = $picker.FileName
+            } finally { $picker.Dispose() }
+        }
     }
+    if (-not (Test-Path -LiteralPath $logo -PathType Leaf)) { throw ('Selected logo file does not exist: ' + $logo) }
+    Write-Host ('Selected PNG: ' + $logo)
     Add-Type -AssemblyName System.Drawing
     $image = [System.Drawing.Image]::FromFile($logo)
     try {

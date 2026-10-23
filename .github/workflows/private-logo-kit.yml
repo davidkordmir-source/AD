@@ -1,4 +1,4 @@
-name: Build and test private local logo installer kit
+name: Build and test complete private logo kit 3.5
 on:
   push:
     branches: [fast-viewshed-gui]
@@ -12,7 +12,7 @@ concurrency:
 jobs:
   private-kit:
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -21,36 +21,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Download the pinned verified base installer
+      - name: Download the pinned complete native runtime payload
         run: |
           New-Item -ItemType Directory -Path private-kit-output -Force | Out-Null
-          Invoke-WebRequest -Uri 'https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/FastViewshed_Setup_v3.4.0_Windows_x64.exe' -OutFile private-kit-output/BaseSetup.exe
-          $hash = (Get-FileHash private-kit-output/BaseSetup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '3cbda5270181774d6d13dca8409f1c3e9de4a0aa53aa878c408f2e97394dc3ab') { throw 'Base Setup SHA256 mismatch.' }
-      - name: Package offline local tools without any private logo
+          Invoke-WebRequest -Uri 'https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/FastViewshed_Offline_Windows_x64_v3.4.0.zip' -OutFile private-kit-output/VerifiedOffline.zip
+          $hash = (Get-FileHash private-kit-output/VerifiedOffline.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '07640d806a43a961b7134a661854cbba85317896ff4b3a707ab1b3242e25a404') { throw 'Offline payload SHA256 mismatch.' }
+      - name: Package complete local build tools without a private logo
         run: |
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6'
-          python private_logo_kit/package_private_kit.py --base-setup private-kit-output/BaseSetup.exe --compiler $compiler --output private-kit-output
-          if ($LASTEXITCODE -ne 0) { throw 'Kit packaging failed.' }
-          python private_logo_kit/package_builder_fix.py --output private-kit-output
-          if ($LASTEXITCODE -ne 0) { throw 'Small updater packaging failed.' }
-      - name: Build a sample locally and test the resulting real installer
+          python private_logo_kit/package_private_kit.py --offline-archive private-kit-output/VerifiedOffline.zip --compiler $compiler --output private-kit-output
+          if ($LASTEXITCODE -ne 0) { throw 'Complete kit packaging failed.' }
+      - name: Test full output, transferred portable runtime and actual installation
         run: |
-          Start-Transcript -Path private-kit-output/PRIVATE_LOGO_KIT_LOG.txt
+          Start-Transcript -Path private-kit-output/PRIVATE_LOGO_COMPLETE_LOG_v3.5.0.txt
           try {
-            ./private_logo_kit/test_private_kit.ps1 -Archive private-kit-output/FastViewshed_Private_Logo_Kit_v3.4.0_v2.zip -Output ((Resolve-Path private-kit-output).Path)
-            Copy-Item private-kit-output/PRIVATE_LOGO_KIT_VALIDATION.json private-kit-output/PRIVATE_LOGO_KIT_FRESH_VALIDATION.json
-            Invoke-WebRequest -Uri 'https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/FastViewshed_Private_Logo_Kit_v3.4.0.zip' -OutFile private-kit-output/OriginalKit.zip
-            if ((Get-FileHash private-kit-output/OriginalKit.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '19eb9d4c54a5e643182227381a065e83d5df91beeff7136eba0058a2c8c6b3c0') { throw 'Original kit SHA256 mismatch.' }
-            ./private_logo_kit/test_private_kit.ps1 -Archive private-kit-output/OriginalKit.zip -BuilderFix private-kit-output/FastViewshed_Logo_Builder_Fix_v2.zip -Output ((Resolve-Path private-kit-output).Path)
-            Copy-Item private-kit-output/PRIVATE_LOGO_KIT_VALIDATION.json private-kit-output/PRIVATE_LOGO_KIT_UPGRADE_VALIDATION.json
+            ./private_logo_kit/test_private_kit.ps1 -Archive private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.0.zip -Output ((Resolve-Path private-kit-output).Path)
           } finally { Stop-Transcript }
-      - name: Publish the tested logo-free toolkit
+      - name: Publish the verified complete toolkit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v3.4.0-installer private-kit-output/FastViewshed_Private_Logo_Kit_v3.4.0_v2.zip private-kit-output/FastViewshed_Private_Logo_Kit_v3.4.0_v2.zip.sha256 private-kit-output/FastViewshed_Logo_Builder_Fix_v2.zip private-kit-output/FastViewshed_Logo_Builder_Fix_v2.zip.sha256 private-kit-output/PRIVATE_LOGO_KIT_VALIDATION.json private-kit-output/PRIVATE_LOGO_KIT_FRESH_VALIDATION.json private-kit-output/PRIVATE_LOGO_KIT_UPGRADE_VALIDATION.json --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Tested kit publication failed.' }
+          gh release view v3.5.0-private-kit *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create v3.5.0-private-kit --target $env:GITHUB_SHA --title 'Fast Viewshed 3.5 - complete offline output with embedded private logo' --notes-file private_logo_kit/RELEASE_FA.md
+            if ($LASTEXITCODE -ne 0) { throw 'Creating the verified release failed.' }
+          }
+          gh release upload v3.5.0-private-kit private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.0.zip private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.0.zip.sha256 private-kit-output/PRIVATE_LOGO_COMPLETE_VALIDATION_v3.5.0.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Verified complete kit publication failed.' }
       - name: Publish build status and diagnostic logs
         if: always()
         env:
@@ -58,18 +56,18 @@ jobs:
           PRIVATE_KIT_JOB_STATUS: ${{ job.status }}
         run: |
           New-Item -ItemType Directory -Path private-kit-output -Force | Out-Null
-          @{status=$env:PRIVATE_KIT_JOB_STATUS;revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID} | ConvertTo-Json | Set-Content private-kit-output/PRIVATE_LOGO_KIT_STATUS.json -Encoding UTF8
-          $files = @('private-kit-output/PRIVATE_LOGO_KIT_STATUS.json')
-          foreach ($name in @('PRIVATE_LOGO_KIT_LOG.txt','MISSING_LOGO_TEST.log','AMBIGUOUS_LOGO_TEST.log','SETUP_TEST.log')) {
+          @{status=$env:PRIVATE_KIT_JOB_STATUS;version='3.5.0';revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID} | ConvertTo-Json | Set-Content private-kit-output/PRIVATE_LOGO_COMPLETE_STATUS_v3.5.0.json -Encoding UTF8
+          $files = @('private-kit-output/PRIVATE_LOGO_COMPLETE_STATUS_v3.5.0.json')
+          foreach ($name in @('PRIVATE_LOGO_COMPLETE_LOG_v3.5.0.txt','MISSING_LOGO_TEST.log','AMBIGUOUS_LOGO_TEST.log','SETUP_TEST.log','PORTABLE_GUI_SMOKE.json')) {
             $file = Join-Path 'private-kit-output' $name
             if (Test-Path -LiteralPath $file) { $files += $file }
           }
           gh release upload v3.4.0-installer @files --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Status publication failed.' }
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic publication failed.' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: private-logo-kit-verification
+          name: complete-private-kit-verification
           path: |
             private-kit-output/*.json
             private-kit-output/*.txt

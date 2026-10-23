@@ -14,10 +14,12 @@
 
 ## ساخت نصب‌کننده با لوگوی شخصی، بدون آپلود لوگو
 
-[دانلود ابزار آفلاین ساخت محلی نصب‌کنندهٔ دارای لوگو](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/FastViewshed_Private_Logo_Kit_v3.4.0.zip)
+[دانلود ابزار آفلاین ساخت محلی نصب‌کنندهٔ دارای لوگو، نسخهٔ اصلاح‌شده](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/FastViewshed_Private_Logo_Kit_v3.4.0_v2.zip)
 
-روی ویندوز ۱۰/۱۱ نسخهٔ ۶۴ بیتی، کل بسته را **Extract All** کنید، لوگوی PNG خود را
-با نام `logo.png` داخل `Logo_Input` بگذارید و `Build_Custom_Setup.bat` را اجرا کنید.
+روی ویندوز ۱۰/۱۱ نسخهٔ ۶۴ بیتی، کل بسته را **Extract All** کنید، فقط یک تصویر PNG
+با هر نامی داخل `Logo_Input` بگذارید و `Build_Custom_Setup.bat` را اجرا کنید.
+اگر تصویر پیدا نشود یا چند تصویر موجود باشد، پنجرهٔ انتخاب فایل باز می‌شود؛
+می‌توانید لوگو را از هر پوشهٔ محلی انتخاب کنید. کشیدن تصویر روی فایل BAT نیز پشتیبانی می‌شود.
 فایل **`Output/FastViewshed_With_Logo_Setup.exe`** را برای دیگران بفرستید؛ همین فایل
 به‌تنهایی شامل برنامه، وابستگی‌ها و یک کپی از لوگوی شماست. روی سیستم مقصد نیازی
 به کپی دستی لوگو نیست. فایل `BaseSetup.exe` نصب‌کنندهٔ پایهٔ بدون لوگوی شماست.
@@ -28,6 +30,12 @@
 در اختیار دریافت‌کنندگان نصب‌کننده نیز قرار می‌گیرد.
 
 [گزارش آزمایش واقعی ساخت محلی و نصب آفلاین ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/PRIVATE_LOGO_KIT_VALIDATION.json)
+
+اگر بستهٔ قبلی را دانلود کرده‌اید و پیام پیدا نشدن لوگو را می‌بینید،
+[فقط اصلاحیهٔ کوچک ابزار](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/FastViewshed_Logo_Builder_Fix_v2.zip)
+را دانلود کنید. **محتویات** اصلاحیه را کنار `Build_Custom_Setup.bat` و `BaseSetup.exe`
+بستهٔ قبلی کپی کنید، یک‌بار `Apply_Builder_Fix.bat` و سپس `Build_Custom_Setup.bat`
+را اجرا کنید. نیازی به دانلود دوبارهٔ بستهٔ اصلی یا آپلود لوگو نیست.
 
 ## نام خروجی مشترک از اتریبیوت
 

@@ -63,7 +63,10 @@ jobs:
             if (Test-Path -LiteralPath $file) { $files += $file }
           }
           gh release upload v3.4.0-installer @files --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic publication failed.' }
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'Optional diagnostic release upload failed; the following artifact step preserves the logs. Required tests and toolkit publication retain their own failure checks.'
+            exit 0
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

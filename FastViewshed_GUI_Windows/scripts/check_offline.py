@@ -127,7 +127,10 @@ def main():
         shipped_preferences = desktop.Preferences(root/'shipped-profile')
         shipped_logo = shipped_preferences.ui['logo']
         shipped_logo_sha256 = None
-        if shipped_logo:
+        if shipped_preferences.logo_locked:
+            shipped_logo = 'embedded'
+            shipped_logo_sha256 = hashlib.sha256(shipped_preferences.embedded_logo).hexdigest()
+        elif shipped_logo:
             shipped_logo_sha256 = hashlib.sha256(Path(shipped_logo).read_bytes()).hexdigest()
         shipped_splash = desktop.create_splash(shipped_preferences, app_folder/'assets'/'aircraft.png')
         shipped_splash.show()
@@ -137,6 +140,13 @@ def main():
         preferences = desktop.Preferences(root/'profile', root/'test-branding')
         assert preferences.configured
         window = application['FastWindow'](preferences)
+        assert window.inputs['radius'].text() == '5'
+        assert window.inputs['observer'].text() == '100'
+        window.inputs['atmospheric_factor'].setValue(1.33333)
+        assert window.inputs['atmospheric_factor'].text() == '1.33333'
+        large_radius = application['FastSettings']('p', 'd', 's', 'e', 'o', radius=5000)
+        large_radius.validate()
+        assert large_radius.radius_m == 5000000
         window.inputs["points"].setText(str(points))
         window.load_fields()
         window.inputs["start_field"].setCurrentText("AZFR")
@@ -221,7 +231,8 @@ def main():
                   transmitter_receiver_regression=True, gui_worker=True, previews=2, invalid_record_skipping=True,
                   all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=False, aircraft_icon=True, default_user_map_features=4510, custom_map_import=True, protected_personalization=True, custom_logo_splash=True,
                   shipped_logo=Path(shipped_logo).name if shipped_logo else None,
-                  shipped_logo_sha256=shipped_logo_sha256)
+                  shipped_logo_sha256=shipped_logo_sha256, logo_locked=shipped_preferences.logo_locked,
+                  radius_limit_km=5000, compact_numeric_display=True, version='3.5.0')
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("Offline runtime verification passed: GDAL, NumPy, Qt, real viewshed and GUI.")
 

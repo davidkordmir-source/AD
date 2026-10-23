@@ -1,5 +1,6 @@
 """Offline map import, local administrator preferences and branded startup UI."""
 import hashlib
+from functools import lru_cache
 import hmac
 import json
 import math
@@ -18,11 +19,53 @@ from PySide6 import QtCore, QtGui, QtWidgets
 DEFAULTS = dict(title='دیدپذیری قطاعی — ورودی و خروجی Shapefile', font_size=12,
                 accent='#146e87', map_line='#7c97a6', map_fill='#fafcfd',
                 map_background='#eaf2f6', logo='')
+REQUIRE_EMBEDDED_LOGO = False  # Enabled in locally built private distributions.
+
+
+@lru_cache(maxsize=1)
+def read_embedded_logo():
+    """Read PNG resource 101 from the launcher as data, without executing it."""
+    executable = Path(__file__).resolve().parent / 'FastViewshed.exe'
+    if os.name != 'nt' or not executable.is_file():
+        return b''
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.LoadLibraryExW.argtypes = [wintypes.LPCWSTR, wintypes.HANDLE, wintypes.DWORD]
+    kernel.LoadLibraryExW.restype = wintypes.HMODULE
+    kernel.FindResourceW.argtypes = [wintypes.HMODULE, ctypes.c_void_p, ctypes.c_void_p]
+    kernel.FindResourceW.restype = ctypes.c_void_p
+    kernel.SizeofResource.argtypes = [wintypes.HMODULE, ctypes.c_void_p]
+    kernel.SizeofResource.restype = wintypes.DWORD
+    kernel.LoadResource.argtypes = [wintypes.HMODULE, ctypes.c_void_p]
+    kernel.LoadResource.restype = ctypes.c_void_p
+    kernel.LockResource.argtypes = [ctypes.c_void_p]
+    kernel.LockResource.restype = ctypes.c_void_p
+    kernel.FreeLibrary.argtypes = [wintypes.HMODULE]
+    module = kernel.LoadLibraryExW(str(executable), None, 0x22)
+    if not module:
+        raise OSError(ctypes.get_last_error(), 'Unable to read the launcher branding resource.')
+    try:
+        resource = kernel.FindResourceW(module, ctypes.c_void_p(101), ctypes.c_void_p(10))
+        if not resource:
+            return b''
+        size = kernel.SizeofResource(module, resource)
+        data = kernel.LockResource(kernel.LoadResource(module, resource))
+        if not data or not 0 < size <= 32 * 1024 * 1024:
+            raise ValueError('The embedded startup logo is damaged.')
+        return ctypes.string_at(data, size)
+    finally:
+        kernel.FreeLibrary(module)
 
 
 class Preferences:
     """Per-user local settings. Passwords are never stored as plaintext."""
-    def __init__(self, folder=None, branding_folder=None):
+    def __init__(self, folder=None, branding_folder=None, embedded_logo=None):
+        self.embedded_logo = (read_embedded_logo() if branding_folder is None else b'') if embedded_logo is None else embedded_logo
+        if self.embedded_logo and QtGui.QImage.fromData(self.embedded_logo).isNull():
+            raise ValueError('لوگوی داخلی برنامه آسیب دیده است؛ برنامه را دوباره نصب کنید.')
+        if REQUIRE_EMBEDDED_LOGO and branding_folder is None and not self.embedded_logo:
+            raise ValueError('لوگوی داخلی برنامه پیدا نشد؛ پوشهٔ کامل برنامه را منتقل یا دوباره نصب کنید.')
         self.branding_folder = Path(branding_folder) if branding_folder is not None else Path(__file__).resolve().parent / 'Branding'
         self.folder = Path(folder or os.environ.get('FAST_VIEWSHED_PROFILE') or
                            (Path(QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.GenericDataLocation)) / 'FastViewshed'))
@@ -82,8 +125,15 @@ class Preferences:
         return matched
 
     @property
+    def logo_locked(self):
+        return bool(self.embedded_logo)
+
+    @property
     def ui(self):
         ui = {**DEFAULTS, **self.data.get('ui', {})}
+        if self.logo_locked:
+            ui['logo'] = ''
+            return ui
         # Resolve against the application, never the working directory or the
         # old computer's user profile. The shipped logo takes precedence.
         for name in ('logo.png', 'logo.jpg', 'logo.jpeg', 'logo.bmp', 'logo.ico'):
@@ -95,6 +145,8 @@ class Preferences:
 
     def install_brand_logo(self, filename):
         """Atomically install a portable PNG beside the application."""
+        if self.logo_locked:
+            raise ValueError('لوگوی این نسخه داخل برنامه ثابت شده و قابل تعویض نیست.')
         image = QtGui.QImage(str(filename))
         if image.isNull():
             raise ValueError('لوگو باید تصویر معتبر PNG، JPG، BMP یا ICO باشد.')
@@ -337,6 +389,11 @@ class PersonalizationDialog(QtWidgets.QDialog):
         self.logo_label = QtWidgets.QLabel(Path(self.logo_path).name if self.logo_path else 'لوگوی همراه برنامه')
         form.addRow('لوگوی شروع', self.logo_label)
         logo = QtWidgets.QPushButton('انتخاب لوگوی همراه برنامه…')
+        self.logo_button = logo
+        if preferences.logo_locked:
+            self.logo_label.setText('لوگوی ثابت داخل برنامه')
+            logo.setText('لوگوی این نسخه ثابت است 🔒')
+            logo.setEnabled(False)
         logo.clicked.connect(self.choose_logo)
         form.addRow(logo)
         self.new_password = QtWidgets.QLineEdit()
@@ -346,7 +403,7 @@ class PersonalizationDialog(QtWidgets.QDialog):
         self.confirm_password.setEchoMode(QtWidgets.QLineEdit.Password)
         form.addRow('رمز جدید مدیر (حداقل ۵ نویسه)', self.new_password)
         form.addRow('تکرار رمز جدید', self.confirm_password)
-        note = QtWidgets.QLabel('لوگو در پوشهٔ Branding کنار برنامه ذخیره می‌شود و از اجرای بعد در صفحهٔ شروع دیده می‌شود. برای انتقال، کل پوشهٔ برنامه را کپی کنید. رمز فقط از بخش شخصی‌سازی داخل برنامه محافظت می‌کند، نه از دسترسی مستقیم به فایل‌ها.')
+        note = QtWidgets.QLabel('لوگوی این نسخه داخل برنامه قرار دارد و در این بخش قابل تعویض نیست.' if preferences.logo_locked else 'لوگو در پوشهٔ Branding کنار برنامه ذخیره می‌شود و از اجرای بعد در صفحهٔ شروع دیده می‌شود. برای انتقال، کل پوشهٔ برنامه را کپی کنید. رمز فقط از بخش شخصی‌سازی داخل برنامه محافظت می‌کند، نه از دسترسی مستقیم به فایل‌ها.')
         note.setWordWrap(True)
         form.addRow(note)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
@@ -360,6 +417,8 @@ class PersonalizationDialog(QtWidgets.QDialog):
             self.colors[key].setText(color.name())
 
     def choose_logo(self):
+        if self.preferences.logo_locked:
+            return
         name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'لوگوی اختصاصی', '', 'Images (*.png *.jpg *.jpeg *.bmp *.ico)')
         if name:
             if QtGui.QImage(name).isNull():
@@ -393,13 +452,17 @@ def create_splash(preferences, default_logo=None):
     painter = QtGui.QPainter(image)
     painter.setRenderHint(QtGui.QPainter.Antialiasing)
     logo = preferences.ui['logo'] or default_logo
-    if logo and Path(logo).is_file():
-        pixmap = QtGui.QPixmap(str(logo))
+    pixmap = QtGui.QPixmap()
+    if preferences.logo_locked:
+        pixmap.loadFromData(preferences.embedded_logo)
+    elif logo and Path(logo).is_file():
+        pixmap.load(str(logo))
+    if not pixmap.isNull():
         pixmap = pixmap.scaled(250, 230, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
         painter.drawPixmap((620 - pixmap.width()) // 2, 18 + (230 - pixmap.height()) // 2, pixmap)
     painter.setPen(QtGui.QColor('white'))
     painter.setFont(QtGui.QFont('Segoe UI', 21, QtGui.QFont.Bold))
-    painter.drawText(QtCore.QRect(15, 245, 590, 45), QtCore.Qt.AlignCenter, 'Fast Viewshed 3.4')
+    painter.drawText(QtCore.QRect(15, 245, 590, 45), QtCore.Qt.AlignCenter, 'Fast Viewshed 3.5')
     painter.setFont(QtGui.QFont('Tahoma', 11))
     painter.drawText(QtCore.QRect(15, 300, 590, 40), QtCore.Qt.AlignCenter, 'در حال آماده‌سازی برنامه…')
     painter.end()

@@ -17,6 +17,8 @@ try {
     New-NetFirewallRule -DisplayName $ruleNames[1] -Direction Outbound -Action Block -Program (Join-Path $runtimePath 'pythonw.exe') -Profile Any | Out-Null
     & (Join-Path $appRoot 'Install_Fast_Viewshed.bat') --quiet 2>&1 | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { throw 'Offline installation or GUI verification failed.' }
+    & (Join-Path $appRoot 'Check_Offline.bat') --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Full offline analysis verification failed.' }
     $report = Get-Content -LiteralPath (Join-Path $appRoot 'OFFLINE_CHECK.json') -Raw | ConvertFrom-Json
     if ($report.status -ne 'passed') { throw 'Offline runtime did not pass.' }
     $report | Add-Member -NotePropertyName windows_firewall_outbound_blocked -NotePropertyValue $true

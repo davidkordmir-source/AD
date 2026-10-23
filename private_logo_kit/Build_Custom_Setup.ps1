@@ -52,23 +52,72 @@ try {
     }
     if (-not $OutputDirectory) { $OutputDirectory = Join-Path $kit 'Output' }
     $destination = [IO.Path]::GetFullPath($OutputDirectory)
-    $work = Join-Path ([IO.Path]::GetTempPath()) ('FastViewshed-local-logo-' + [guid]::NewGuid().ToString('N'))
+    $runtimeInfo = Get-Content -LiteralPath (Join-Path $kit 'Payload\RUNTIME_MANIFEST.json') -Raw | ConvertFrom-Json
+    $archiveSize = (Get-Item -LiteralPath (Join-Path $kit 'Payload\runtime_win64.zip')).Length
+    $required = [long]$runtimeInfo.uncompressed_bytes + 4 * $archiveSize + 512MB
+    $drive = Get-PSDrive -Name ([IO.Path]::GetPathRoot($kit).Substring(0, 1))
+    if ($drive.Free -lt $required) { throw ('Not enough free disk space. Need about ' + [math]::Ceiling($required / 1GB) + ' GB for the complete output.') }
+    $work = Join-Path $kit ('_Build_' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
     Copy-Item -LiteralPath $logo -Destination (Join-Path $work 'logo.png')
+    $stage = Join-Path $work 'App'
+    New-Item -ItemType Directory -Path $stage | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $kit 'Payload') -Force | Copy-Item -Destination $stage -Recurse
+    $desktopModule = Join-Path $stage 'desktop_customization.py'
+    $source = [IO.File]::ReadAllText($desktopModule)
+    if (-not $source.Contains('REQUIRE_EMBEDDED_LOGO = False')) { throw 'The logo protection module is not the expected version.' }
+    [IO.File]::WriteAllText($desktopModule, $source.Replace('REQUIRE_EMBEDDED_LOGO = False', 'REQUIRE_EMBEDDED_LOGO = True'), [Text.Encoding]::UTF8)
+    $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (-not (Test-Path -LiteralPath $csc)) { throw 'The Windows .NET Framework compiler is unavailable.' }
+    $launcher = Join-Path $stage 'FastViewshed.exe'
+    & $csc /nologo /target:winexe /platform:x64 "/win32icon:$stage\assets\aircraft.ico" "/out:$launcher" /reference:System.Windows.Forms.dll (Join-Path $kit 'FastViewshedLauncher.cs')
+    if ($LASTEXITCODE -ne 0) { throw 'Compiling the application launcher failed.' }
+    & (Join-Path $kit 'Embed_Logo.ps1') -Executable $launcher -Logo (Join-Path $work 'logo.png')
     $compiler = Join-Path $kit 'Toolchain\ISCC.exe'
-    $baseHash = (Get-FileHash -LiteralPath (Join-Path $kit 'BaseSetup.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-    Write-Host 'Building your private installer locally. No files are uploaded.'
-    & $compiler "/DKitRoot=$kit" "/DLogoFile=$work\logo.png" "/DOutputDir=$work" "/DBaseSHA256=$baseHash" (Join-Path $kit 'PrivateLogo.iss')
+    $deliverable = Join-Path $work 'Deliverable'
+    New-Item -ItemType Directory -Path $deliverable | Out-Null
+    Write-Host 'Building the complete offline installer locally. No files are uploaded.'
+    & $compiler "/DStageDir=$stage" "/DOutputDir=$deliverable" (Join-Path $kit 'PrivateLogo.iss')
     if ($LASTEXITCODE -ne 0) { throw 'The local installer compiler failed.' }
-    $built = Join-Path $work 'FastViewshed_With_Logo_Setup.exe'
+    $built = Join-Path $deliverable 'FastViewshed_With_Logo_Setup.exe'
     if (-not (Test-Path -LiteralPath $built)) { throw 'The compiler did not produce an installer.' }
-    New-Item -ItemType Directory -Path $destination -Force | Out-Null
-    $outputFile = Join-Path $destination 'FastViewshed_With_Logo_Setup.exe'
-    Copy-Item -LiteralPath $built -Destination $outputFile -Force
-    $hash = (Get-FileHash -LiteralPath $outputFile -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $destination 'SHA256SUMS.txt'), ($hash + '  FastViewshed_With_Logo_Setup.exe' + [Environment]::NewLine), [Text.Encoding]::ASCII)
-    Write-Host ('Ready: ' + $outputFile) -ForegroundColor Green
-    Write-Host 'Give this NEW installer to other computers. The logo is embedded inside it.'
+    $portable = Join-Path $deliverable 'Portable'
+    New-Item -ItemType Directory -Path $portable | Out-Null
+    Get-ChildItem -LiteralPath $stage -Force | Copy-Item -Destination $portable -Recurse
+    $runtime = Join-Path $portable 'runtime_offline'
+    New-Item -ItemType Directory -Path $runtime | Out-Null
+    Write-Host 'Extracting all Python, GDAL and Qt files for the complete portable output...'
+    $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (Test-Path -LiteralPath $tar) {
+        & $tar -xf (Join-Path $portable 'runtime_win64.zip') -C $runtime
+        if ($LASTEXITCODE -ne 0) { throw 'Portable runtime extraction failed.' }
+    } else { Expand-Archive -LiteralPath (Join-Path $portable 'runtime_win64.zip') -DestinationPath $runtime }
+    $runtimeRoot = [IO.Path]::GetFullPath($runtime).TrimEnd('\') + '\'
+    $packedFiles = @(Get-ChildItem -LiteralPath $runtime -File -Recurse | ForEach-Object {
+        @{path=$_.FullName.Substring($runtimeRoot.Length);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+    })
+    @{archive_sha256=$runtimeInfo.sha256;files=$packedFiles} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runtime '.packed-files.json') -Encoding UTF8
+    Copy-Item -LiteralPath (Join-Path $kit 'OUTPUT_README_FA.txt') -Destination (Join-Path $deliverable 'README_FA.txt')
+    $inventory = @(Get-ChildItem -LiteralPath $deliverable -File -Recurse | ForEach-Object {
+        @{path=$_.FullName.Substring($deliverable.Length + 1);bytes=$_.Length}
+    })
+    @{version='3.5.0';files=$inventory;embedded_logo=$true} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $deliverable 'FILES.json') -Encoding UTF8
+    $checks = @()
+    $checks += ((Get-FileHash -LiteralPath $built -Algorithm SHA256).Hash.ToLowerInvariant() + '  FastViewshed_With_Logo_Setup.exe')
+    $checks += ((Get-FileHash -LiteralPath (Join-Path $portable 'FastViewshed.exe') -Algorithm SHA256).Hash.ToLowerInvariant() + '  Portable/FastViewshed.exe')
+    [IO.File]::WriteAllText((Join-Path $deliverable 'SHA256SUMS.txt'), ($checks -join [Environment]::NewLine), [Text.Encoding]::ASCII)
+    $previous = $null
+    if (Test-Path -LiteralPath $destination) {
+        $previous = $destination + '.previous.' + [guid]::NewGuid().ToString('N')
+        Move-Item -LiteralPath $destination -Destination $previous
+    }
+    try { Move-Item -LiteralPath $deliverable -Destination $destination } catch {
+        if ($previous -and -not (Test-Path -LiteralPath $destination)) { Move-Item -LiteralPath $previous -Destination $destination }
+        throw
+    }
+    Write-Host ('Ready: ' + $destination) -ForegroundColor Green
+    Write-Host 'Output includes the installer AND the full Portable folder, with all runtime files. No separate logo file is included.'
+    if ($previous) { Write-Host ('Previous output preserved: ' + $previous) }
     exit 0
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Red

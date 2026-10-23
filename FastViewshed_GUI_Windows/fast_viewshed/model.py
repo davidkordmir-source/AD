@@ -71,8 +71,8 @@ class FastSettings:
             value = getattr(self, name)
             if not math.isfinite(value) or value < 0:
                 raise ValueError("مقدار نامعتبر: "+name)
-        if not 0 < self.radius_m <= 300000:
-            raise ValueError("شعاع باید بزرگ‌تر از صفر و حداکثر ۳۰۰ کیلومتر باشد.")
+        if not 0 < self.radius_m <= 5000000:
+            raise ValueError("شعاع باید بزرگ‌تر از صفر و حداکثر ۵۰۰۰ کیلومتر باشد.")
         if not 0 < self.atmospheric_factor <= 1000:
             raise ValueError("ضریب Atmospheric Correction باید مثبت و حداکثر ۱۰۰۰ باشد.")
         if self.resolution_factor not in (1, 2, 4):

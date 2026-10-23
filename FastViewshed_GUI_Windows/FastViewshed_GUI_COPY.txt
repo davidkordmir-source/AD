@@ -179,8 +179,8 @@ try:
                 value = getattr(self, name)
                 if not math.isfinite(value) or value < 0:
                     raise ValueError('مقدار نامعتبر: ' + name)
-            if not 0 < self.radius_m <= 300000:
-                raise ValueError('شعاع باید بزرگ\u200cتر از صفر و حداکثر ۳۰۰ کیلومتر باشد.')
+            if not 0 < self.radius_m <= 5000000:
+                raise ValueError('شعاع باید بزرگ\u200cتر از صفر و حداکثر ۵۰۰۰ کیلومتر باشد.')
             if not 0 < self.atmospheric_factor <= 1000:
                 raise ValueError('ضریب Atmospheric Correction باید مثبت و حداکثر ۱۰۰۰ باشد.')
             if self.resolution_factor not in (1, 2, 4):
@@ -778,7 +778,7 @@ try:
             save_skipped_records(folder, skipped)
             (folder / 'README_RESULTS_FA.txt').write_text('فایل\u200cهای اصلی قابل\u200cدید:\n' + '\n'.join(primary_outputs) + '\nاین لایه فقط پلی\u200cگون\u200cهای status=1 را دارد؛ نواحی پنهان و نامعلوم داخل آن نیستند.\nرکوردهای نامعتبر با FID، نام، ستون و علت در skipped_records.csv و skipped_records.json ثبت می\u200cشوند.\nاگر همهٔ رکوردها رد شده\u200cاند یا ورودی خالی است، visible.shp خالی ولی قابل باز کردن ساخته می\u200cشود.\nدر حالت خروجی جدا، لایه\u200cهای کمکی visibility و sectors داخل details هستند.\nستون name نام انتخابی نقطه است؛ بدون انتخاب ستون نام، FID استفاده می\u200cشود.\nعدد پایانی فایل مستقل، ارتفاع فرستنده/آبجکت در محل نقطه بر حسب متر است.\nvisibility.shp هر سه کلاس را دارد: 1=قابل\u200cدید، 0=پنهان، 2=نامعلوم؛ sectors.shp فقط مرز تحلیل است.\nبرای مقایسه با Global Mapper، DEM، موقعیت، ارتفاع\u200cها، واحدها، شعاع، آزیموت، پیکسل و انحنا باید یکسان باشند.\nrun.json تنظیمات، رکوردهای موفق و ردشده و شمارش و مساحت کلاس\u200cها را نگه می\u200cدارد.\n', encoding='utf-8')
             outcome = 'no_valid_observers' if not summaries else 'completed_with_skips' if skipped else 'completed'
-            report = dict(status='completed', outcome=outcome, application_version='3.4.0', offline=True, selected_records=len(rows) + sum((r['stage'] == 'input' for r in skipped)), succeeded_records=len(summaries), skipped_count=len(skipped), skipped_records=skipped, skipped_report='skipped_records.csv', empty_output=not any((row['counts']['1'] for row in summaries)), engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=primary_outputs[0] if not cfg.separate_outputs or not summaries else None, primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'Invalid records are logged and skipped; no invalid point is given fabricated coverage.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
+            report = dict(status='completed', outcome=outcome, application_version='3.5.0', offline=True, selected_records=len(rows) + sum((r['stage'] == 'input' for r in skipped)), succeeded_records=len(summaries), skipped_count=len(skipped), skipped_records=skipped, skipped_report='skipped_records.csv', empty_output=not any((row['counts']['1'] for row in summaries)), engine=gdal.VersionInfo('--version'), method='GDAL GVM_Edge / Wang', settings=asdict(cfg), observers=summaries, seconds=time.perf_counter() - started, output_crs=output_sr.ExportToWkt(), classes=CLASS_NAMES, primary_output=primary_outputs[0] if not cfg.separate_outputs or not summaries else None, primary_outputs=primary_outputs, output_mode='per_observer' if cfg.separate_outputs else 'combined', height_mapping={'observer_at_point_m': None if cfg.observer_field else cfg.observer * UNITS[cfg.observer_unit], 'receiver_on_cells_m': None if cfg.receiver_field else cfg.receiver * UNITS[cfg.receiver_unit], 'observer_field': cfg.observer_field, 'receiver_field': cfg.receiver_field, 'curvature_coefficient': cfg.curvature_coefficient}, outputs={**{name: 'visible cells only (status=1)' for name in primary_outputs}, (detail_folder / 'visibility.shp').relative_to(folder).as_posix(): 'all classes; requires class symbology or filtering', (detail_folder / 'sectors.shp').relative_to(folder).as_posix(): 'analysis bounds, not visibility'}, notes=['Per-observer AEQD grids preserve radial distances and true bearings.', 'Invalid records are logged and skipped; no invalid point is given fabricated coverage.', 'NoData policy: ' + cfg.nodata_policy, 'Results are grid approximations; equivalence to Esri/Global Mapper is not established.'])
             (folder / 'run.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             progress(1)
             log(f'پایان: {len(summaries)} رکورد موفق، {len(skipped)} رکورد ردشده؛ گزارش: skipped_records.csv\n{folder}')
@@ -1103,6 +1103,10 @@ try:
             forward_form_wheel(self, event)
 
     class ScrollDoubleSpinBox(QtWidgets.QDoubleSpinBox):
+
+        def textFromValue(self, value):
+            text = format(value, f'.{self.decimals()}f')
+            return text.rstrip('0').rstrip('.') if '.' in text else text
 
         def wheelEvent(self, event):
             forward_form_wheel(self, event)
@@ -1640,7 +1644,9 @@ try:
             spin.setRange(0, 1000000)
             spin.setValue(default)
             spin.setLayoutDirection(QtCore.Qt.LeftToRight)
-            spin.setLocale(QtCore.QLocale('fa_IR'))
+            spin.setLocale(QtCore.QLocale.c())
+            spin.setGroupSeparatorShown(False)
+            spin.setKeyboardTracking(False)
             self.inputs[name] = spin
             grid.addWidget(QtWidgets.QLabel(label), row, 0)
             grid.addWidget(spin, row, 1, 1, 1 if unit_name else 2)
@@ -1651,6 +1657,14 @@ try:
                 combo.setCurrentIndex(combo.findData(unit_default))
                 self.unit_boxes[unit_name] = combo
                 grid.addWidget(combo, row, 2)
+                if name == 'radius':
+                    def update_radius_limit():
+                        factor = {'m': 1, 'km': 1000, 'ft': 0.3048, 'mi': 1609.344}[combo.currentData()]
+                        scale = 10 ** spin.decimals()
+                        spin.setMaximum(int(5000000 / factor * scale) / scale)
+                        spin.setToolTip('حداکثر شعاع: ۵۰۰۰ کیلومتر؛ عدد بر حسب واحد انتخاب‌شده است.')
+                    combo.currentIndexChanged.connect(update_radius_limit)
+                    update_radius_limit()
 
         def choose_shape(self):
             name, _ = QtWidgets.QFileDialog.getOpenFileName(self, 'فایل نقاط', '', 'Point files (*.shp *.geojson *.json);;Shapefile (*.shp);;GeoJSON (*.geojson *.json)')
@@ -1952,12 +1966,12 @@ try:
             splash.finish(window)
             if not preferences.configured and not os.environ.get('FAST_VIEWSHED_SMOKE_REPORT'):
                 QtCore.QTimer.singleShot(100, window.initialize_administrator)
-        QtCore.QTimer.singleShot(900, reveal_window)
+        QtCore.QTimer.singleShot(150, reveal_window)
         report_path = os.environ.get('FAST_VIEWSHED_SMOKE_REPORT')
         if report_path:
 
             def report_ready():
-                report = dict(status='passed', executable=sys.executable, version='3.4.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown)
+                report = dict(status='passed', executable=sys.executable, version='3.5.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown)
                 Path(report_path).write_text(json.dumps(report, indent=2), encoding='utf-8')
                 window.close()
             QtCore.QTimer.singleShot(1200, report_ready)

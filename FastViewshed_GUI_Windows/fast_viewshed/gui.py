@@ -42,6 +42,10 @@ class ScrollSpinBox(QtWidgets.QSpinBox):
 
 
 class ScrollDoubleSpinBox(QtWidgets.QDoubleSpinBox):
+    def textFromValue(self, value):
+        text = format(value, f'.{self.decimals()}f')
+        return text.rstrip('0').rstrip('.') if '.' in text else text
+
     def wheelEvent(self, event):
         forward_form_wheel(self, event)
 
@@ -464,7 +468,9 @@ class FastWindow(QtWidgets.QMainWindow):
         spin.setRange(0, 1000000)
         spin.setValue(default)
         spin.setLayoutDirection(QtCore.Qt.LeftToRight)
-        spin.setLocale(QtCore.QLocale("fa_IR"))
+        spin.setLocale(QtCore.QLocale.c())
+        spin.setGroupSeparatorShown(False)
+        spin.setKeyboardTracking(False)
         self.inputs[name] = spin
         grid.addWidget(QtWidgets.QLabel(label), row, 0)
         grid.addWidget(spin, row, 1, 1, 1 if unit_name else 2)
@@ -475,6 +481,14 @@ class FastWindow(QtWidgets.QMainWindow):
             combo.setCurrentIndex(combo.findData(unit_default))
             self.unit_boxes[unit_name] = combo
             grid.addWidget(combo, row, 2)
+            if name == 'radius':
+                def update_radius_limit():
+                    factor = {'m': 1, 'km': 1000, 'ft': 0.3048, 'mi': 1609.344}[combo.currentData()]
+                    scale = 10 ** spin.decimals()
+                    spin.setMaximum(int(5000000 / factor * scale) / scale)
+                    spin.setToolTip('حداکثر شعاع: ۵۰۰۰ کیلومتر؛ عدد بر حسب واحد انتخاب‌شده است.')
+                combo.currentIndexChanged.connect(update_radius_limit)
+                update_radius_limit()
 
     def choose_shape(self):
         name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "فایل نقاط", "", "Point files (*.shp *.geojson *.json);;Shapefile (*.shp);;GeoJSON (*.geojson *.json)")

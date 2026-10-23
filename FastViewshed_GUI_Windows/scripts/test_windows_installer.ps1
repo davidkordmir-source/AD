@@ -1,4 +1,4 @@
-param([string]$Installer, [string]$Output)
+param([string]$Installer, [string]$Output, [string]$Version = '3.4.0')
 $ErrorActionPreference = 'Stop'
 $installerPath = (Resolve-Path -LiteralPath $Installer).Path
 $outputPath = (Resolve-Path -LiteralPath $Output).Path
@@ -13,6 +13,8 @@ try {
     $process = Start-Process -FilePath $installerPath -ArgumentList $arguments -PassThru
     if (-not $process.WaitForExit(300000)) { Stop-Process -Id $process.Id -Force; throw 'Setup timed out.' }
     if ($process.ExitCode -ne 0) { throw ('Installer failed with code '+$process.ExitCode) }
+    & (Join-Path $installed 'Check_Offline.bat') --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Full installed application regression check failed.' }
     $link = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Fast Viewshed.lnk'
     if (-not (Test-Path -LiteralPath $link)) { throw 'Desktop shortcut was not created.' }
     $shell = New-Object -ComObject WScript.Shell
@@ -48,7 +50,7 @@ try {
     $remove = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru
     if (-not $remove.WaitForExit(120000)) { throw 'Uninstall timed out.' }
     if ($remove.ExitCode -ne 0 -or (Test-Path -LiteralPath $link)) { throw 'Uninstall did not remove the shortcut.' }
-    $report = @{status='passed';version='3.4.0';offline=$true;firewall_blocked=$true;desktop_shortcut=$true;aircraft_icon=$true;installed_gui=$gui;native_gis=$native;uninstall_registered=$true;uninstall_tested=$true;per_user_install=$true}
+    $report = @{status='passed';version=$Version;offline=$true;firewall_blocked=$true;desktop_shortcut=$true;aircraft_icon=$true;installed_gui=$gui;native_gis=$native;uninstall_registered=$true;uninstall_tested=$true;per_user_install=$true}
     $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $reportPath -Encoding UTF8
 } catch {
     $details = $_.ToString()

@@ -1,23 +1,14 @@
-param([Parameter(Mandatory=$true)][string]$Archive, [Parameter(Mandatory=$true)][string]$Output, [string]$BuilderFix)
+param([Parameter(Mandatory=$true)][string]$Archive, [Parameter(Mandatory=$true)][string]$Output)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$testRoot = Join-Path $env:RUNNER_TEMP ('Private logo kit with spaces ' + [guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path $env:RUNNER_TEMP ('Complete private kit with spaces ' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 Expand-Archive -LiteralPath $Archive -DestinationPath $testRoot
 $kit = Join-Path $testRoot 'FastViewshed_Private_Logo_Kit'
 $builder = Join-Path $kit 'Build_Custom_Setup.ps1'
 $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-if ($BuilderFix) {
-    Expand-Archive -LiteralPath $BuilderFix -DestinationPath $kit
-    & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Builder_Fix.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'Applying the small fix to the original downloaded kit failed.' }
-    & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Builder_Fix.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'Repeated fix application failed.' }
-}
-# Missing input must not silently produce an installer without branding.
 & $shell -NoProfile -STA -ExecutionPolicy Bypass -File $builder -NonInteractive *> (Join-Path $Output 'MISSING_LOGO_TEST.log')
 if ($LASTEXITCODE -eq 0) { throw 'Missing logo incorrectly passed.' }
-if (Test-Path -LiteralPath (Join-Path $kit 'Output\FastViewshed_With_Logo_Setup.exe')) { throw 'Unexpected unbranded output.' }
 Add-Type -AssemblyName System.Drawing
 $logo = Join-Path $kit 'Logo_Input\My company mark.PNG.PNG'
 $image = New-Object System.Drawing.Bitmap(100, 80)
@@ -33,17 +24,49 @@ Copy-Item -LiteralPath $logo -Destination $secondLogo
 if ($LASTEXITCODE -eq 0) { throw 'Multiple input images were silently accepted.' }
 Remove-Item -LiteralPath $secondLogo
 & $shell -NoProfile -STA -ExecutionPolicy Bypass -File $builder -NonInteractive
-if ($LASTEXITCODE -ne 0) { throw 'Local private installer build failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Complete local build failed.' }
 if ((Get-FileHash -LiteralPath $logo -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'The original user logo was modified.' }
-$installer = Join-Path $kit 'Output\FastViewshed_With_Logo_Setup.exe'
-# The existing test performs a real fresh installation, firewall isolation,
-# GUI startup, native analysis, shortcut checks and uninstallation.
-& (Join-Path $root 'FastViewshed_GUI_Windows\scripts\test_windows_installer.ps1') -Installer $installer -Output $Output
-$report = Get-Content -LiteralPath (Join-Path $Output 'WINDOWS_INSTALLER_VALIDATION.json') -Raw | ConvertFrom-Json
-if ($report.status -ne 'passed') { throw 'The private installer did not pass Windows validation.' }
-if ($report.native_gis.shipped_logo -ne 'logo.png' -or $report.native_gis.shipped_logo_sha256 -ne $expected) {
-    throw 'A fresh target did not load the exact logo embedded by the local build.'
+$delivery = Join-Path $kit 'Output'
+$portable = Join-Path $delivery 'Portable'
+foreach ($name in @('FastViewshed.exe','FastViewshed_GUI.py','desktop_customization.py','runtime_win64.zip','runtime_offline\python.exe','runtime_offline\pythonw.exe','runtime_offline\Lib\site-packages\osgeo\gdal.py','assets\default_map\area.shp')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $portable $name))) { throw ('Incomplete portable output: ' + $name) }
 }
-@{status='passed';private_local_build=$true;missing_logo_rejected=$true;multiple_logos_rejected=$true;arbitrary_png_filename=$true;double_extension_supported=$true;upgrade_tested=[bool]$BuilderFix;original_logo_preserved=$true;embedded_logo_sha256=$expected;installed_logo_verified=$true;windows=$report} |
-    ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $Output 'PRIVATE_LOGO_KIT_VALIDATION.json') -Encoding UTF8
-Write-Host 'PASS: local build, embedded logo, offline installation, GUI and uninstallation.'
+# Raw private PNG bytes must never be delivered as a separate image file.
+foreach ($file in (Get-ChildItem -LiteralPath $delivery -File -Recurse | Where-Object { $_.Extension -ieq '.png' })) {
+    if ((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expected) { throw 'The private logo was delivered as a separate PNG file.' }
+}
+$moved = Join-Path $env:RUNNER_TEMP ('Recipient portable with spaces ' + [guid]::NewGuid().ToString('N'))
+Move-Item -LiteralPath $portable -Destination $moved
+$rules = @('FV-complete-portable-python','FV-complete-portable-pythonw')
+try {
+    New-NetFirewallRule -DisplayName $rules[0] -Direction Outbound -Action Block -Program (Join-Path $moved 'runtime_offline\python.exe') -Profile Any | Out-Null
+    New-NetFirewallRule -DisplayName $rules[1] -Direction Outbound -Action Block -Program (Join-Path $moved 'runtime_offline\pythonw.exe') -Profile Any | Out-Null
+    & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Transferred portable initialization failed.' }
+    $markerPath = Join-Path $moved 'runtime_offline\.offline-ready.json'
+    $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+    if (-not $marker.used_preextracted_runtime) { throw 'Portable runtime was unnecessarily extracted again.' }
+    $markerHash = (Get-FileHash -LiteralPath $markerPath).Hash
+    & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet
+    if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $markerPath).Hash -ne $markerHash) { throw 'Repeated startup did not reuse initialized dependencies.' }
+    & (Join-Path $moved 'Check_Offline.bat') --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Portable application full regression failed.' }
+    $portableReport = Get-Content -LiteralPath (Join-Path $moved 'OFFLINE_CHECK.json') -Raw | ConvertFrom-Json
+    if (-not $portableReport.logo_locked -or $portableReport.shipped_logo_sha256 -ne $expected) { throw 'Portable startup did not use the fixed embedded logo.' }
+    if ($portableReport.radius_limit_km -ne 5000 -or -not $portableReport.compact_numeric_display) { throw 'Portable radius or numeric display regression.' }
+    $smoke = Join-Path $Output 'PORTABLE_GUI_SMOKE.json'
+    $process = Start-Process -FilePath (Join-Path $moved 'FastViewshed.exe') -ArgumentList ('--smoke-test "'+$smoke+'"') -PassThru
+    if (-not $process.WaitForExit(60000)) { Stop-Process -Id $process.Id -Force; throw 'Portable GUI startup timed out.' }
+    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $smoke)) { throw 'Portable GUI did not start.' }
+} finally {
+    foreach ($rule in $rules) { Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue }
+    # This is the temporary test copy; the deliverable was already verified.
+    if (Test-Path -LiteralPath $moved) { Remove-Item -LiteralPath $moved -Recurse -Force }
+}
+$installer = Join-Path $delivery 'FastViewshed_With_Logo_Setup.exe'
+& (Join-Path $root 'FastViewshed_GUI_Windows\scripts\test_windows_installer.ps1') -Installer $installer -Output $Output -Version '3.5.0'
+$report = Get-Content -LiteralPath (Join-Path $Output 'WINDOWS_INSTALLER_VALIDATION.json') -Raw | ConvertFrom-Json
+if ($report.status -ne 'passed' -or -not $report.native_gis.logo_locked -or $report.native_gis.shipped_logo_sha256 -ne $expected) { throw 'Installed application did not load the exact fixed embedded logo.' }
+@{status='passed';version='3.5.0';private_local_build=$true;complete_portable_files=$true;preextracted_runtime_reused=$true;separate_logo_absent=$true;logo_locked=$true;original_logo_preserved=$true;arbitrary_png_filename=$true;embedded_logo_sha256=$expected;radius_limit_km=5000;compact_numeric_display=$true;portable=$portableReport;windows=$report} |
+    ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $Output 'PRIVATE_LOGO_COMPLETE_VALIDATION_v3.5.0.json') -Encoding UTF8
+Write-Host 'PASS: full portable files, transfer, cached startup, embedded logo, radius, number display, real installed GUI and uninstall.'

@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$started = [Diagnostics.Stopwatch]::StartNew()
 try {
     $appRoot = Split-Path -Parent $PSScriptRoot
     $manifestPath = Join-Path $appRoot 'RUNTIME_MANIFEST.json'
@@ -8,7 +9,8 @@ try {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $runtimePath = Join-Path $appRoot 'runtime_offline'
     $markerPath = Join-Path $runtimePath '.offline-ready.json'
-    if (Test-Path -LiteralPath $markerPath) {
+    $hadMarker = Test-Path -LiteralPath $markerPath
+    if ($hadMarker) {
         $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
         if ($marker.path -eq $runtimePath -and $marker.sha256 -eq $manifest.sha256 -and
             (Test-Path -LiteralPath (Join-Path $runtimePath 'python.exe')) -and
@@ -31,19 +33,39 @@ try {
         throw 'Runtime checksum mismatch. Copy the original offline ZIP again.'
     }
     if (Test-Path -LiteralPath $markerPath) { Remove-Item -LiteralPath $markerPath -Force }
+    $prepared = $false
+    $packedFiles = Join-Path $runtimePath '.packed-files.json'
+    if (-not $hadMarker -and (Test-Path -LiteralPath $packedFiles)) {
+        $packed = Get-Content -LiteralPath $packedFiles -Raw | ConvertFrom-Json
+        if ($packed.archive_sha256 -eq $manifest.sha256 -and $packed.files.Count -gt 0) {
+            Write-Host 'Checking the already extracted portable runtime...'
+            $prepared = $true
+            $runtimeRoot = [IO.Path]::GetFullPath($runtimePath).TrimEnd('\') + '\'
+            foreach ($entry in $packed.files) {
+                $file = [IO.Path]::GetFullPath((Join-Path $runtimePath $entry.path))
+                if (-not $file.StartsWith($runtimeRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid portable runtime manifest path.' }
+                if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) {
+                    $prepared = $false
+                    break
+                }
+            }
+        }
+    }
     New-Item -ItemType Directory -Path $runtimePath -Force | Out-Null
-    Write-Host 'Extracting the private Python, GDAL, NumPy and Qt runtime...'
-    # Re-extracting the immutable payload also repairs a moved installation.
-    $tarPath = Join-Path $env:SystemRoot 'System32\tar.exe'
-    if (Test-Path -LiteralPath $tarPath) {
-        & $tarPath -xf $archive -C $runtimePath
-        if ($LASTEXITCODE -ne 0) { throw 'Runtime extraction failed.' }
-    } else {
-        Expand-Archive -LiteralPath $archive -DestinationPath $runtimePath -Force
+    if (-not $prepared) {
+        Write-Host 'Extracting the private Python, GDAL, NumPy and Qt runtime...'
+        # A moved initialized runtime is repaired from the immutable archive.
+        $tarPath = Join-Path $env:SystemRoot 'System32\tar.exe'
+        if (Test-Path -LiteralPath $tarPath) {
+            & $tarPath -xf $archive -C $runtimePath
+            if ($LASTEXITCODE -ne 0) { throw 'Runtime extraction failed.' }
+        } else {
+            Expand-Archive -LiteralPath $archive -DestinationPath $runtimePath -Force
+        }
     }
     & (Join-Path $appRoot '_Finalize_Offline.bat')
     if ($LASTEXITCODE -ne 0) { throw 'Local runtime validation failed. Keep the console output for troubleshooting.' }
-    @{ path = $runtimePath; sha256 = $manifest.sha256; version = $manifest.version } |
+    @{ path = $runtimePath; sha256 = $manifest.sha256; version = $manifest.version; used_preextracted_runtime = $prepared; initialization_seconds = $started.Elapsed.TotalSeconds } |
         ConvertTo-Json | Set-Content -LiteralPath $markerPath -Encoding UTF8
     Write-Host 'Offline installation verified. Run_Fast_Viewshed.bat opens the GUI.'
     exit 0

@@ -30,6 +30,8 @@ def content(name):
 
 
 def package(output):
+    if 'Payload' in (ROOT / 'Build_Custom_Setup.ps1').read_text(encoding='utf-8'):
+        raise RuntimeError('The 3.5 complete kit requires its full payload. Do not create a legacy v2 patch from newer builder files.')
     output.mkdir(parents=True, exist_ok=True)
     target = output / NAME
     files = ['Build_Custom_Setup.bat', 'Build_Custom_Setup.ps1', 'README_FA.txt', 'Logo_Input/README_FA.txt']

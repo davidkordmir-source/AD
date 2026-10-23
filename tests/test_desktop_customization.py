@@ -247,6 +247,30 @@ class DesktopCustomizationTests(unittest.TestCase):
         self.assertEqual(installed.read_bytes(), before)
         self.assertEqual(list(self.prefs.branding_folder.glob('*.tmp')), [])
 
+    def test_embedded_logo_wins_over_profile_and_external_files_and_cannot_be_changed_in_ui(self):
+        image = QtGui.QImage(100, 60, QtGui.QImage.Format_RGB32)
+        image.fill(QtGui.QColor('#2468ac'))
+        data = QtCore.QByteArray()
+        buffer = QtCore.QBuffer(data)
+        buffer.open(QtCore.QIODevice.WriteOnly)
+        self.assertTrue(image.save(buffer, 'PNG'))
+        buffer.close()
+        locked = desktop.Preferences(self.root/'locked-profile', self.root/'Branding', embedded_logo=bytes(data))
+        external = self.root/'other-logo.png'
+        image.fill(QtGui.QColor('red'))
+        image.save(str(external))
+        locked.data['ui'] = {'logo': str(external)}
+        self.assertTrue(locked.logo_locked)
+        self.assertEqual(locked.ui['logo'], '')
+        with self.assertRaises(ValueError):
+            locked.install_brand_logo(external)
+        dialog = desktop.PersonalizationDialog(locked)
+        self.assertFalse(dialog.logo_button.isEnabled())
+        dialog.close()
+        splash = desktop.create_splash(locked, external)
+        self.assertEqual(splash.pixmap().toImage().pixelColor(310, 100).name(), '#2468ac')
+        splash.close()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -43,11 +43,14 @@ def main():
     files = ['desktop_customization.py', 'FastViewshed_GUI.py', 'FastViewshed_GUI_COPY.txt', 'Run_Fast_Viewshed.bat',
              'Install_Fast_Viewshed.bat', 'Check_Offline.bat', '_Activate_Offline.bat',
              '_Finalize_Offline.bat', 'README_FAST_FA.md', 'BRANDING_UPDATE_FA.txt', 'environment-fast.yml',
-             'scripts/install_offline.ps1', 'scripts/check_offline.py']
+             'scripts/install_offline.ps1', 'scripts/check_offline.py', 'scripts/verify_runtime.py']
     for relative in files:
         target = stage/relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT/relative, target)
+        if target.suffix.lower() == '.bat':
+            target.write_bytes((ROOT/relative).read_text(encoding='utf-8').replace('\n', '\r\n').encode('utf-8'))
+        else:
+            shutil.copy2(ROOT/relative, target)
     shutil.copytree(ROOT/'demo_fast', stage/'demo_fast', dirs_exist_ok=True)
     shutil.copytree(ROOT/'assets', stage/'assets', dirs_exist_ok=True)
     shutil.copytree(ROOT/'Branding', stage/'Branding', dirs_exist_ok=True)

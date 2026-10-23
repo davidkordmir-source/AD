@@ -1,68 +1,66 @@
-#ifndef KitRoot
-#error KitRoot is required
+#ifndef AppVersion
+#define AppVersion "3.5.0"
 #endif
-#ifndef LogoFile
-#error LogoFile is required
+#ifndef StageDir
+#error StageDir is required
 #endif
 #ifndef OutputDir
-#error OutputDir is required
-#endif
-#ifndef BaseSHA256
-#error BaseSHA256 is required
+#define OutputDir "..\dist"
 #endif
 [Setup]
-AppId=FastViewshed.PrivateLogoBundle
+AppId={{D76E40E5-9EDD-4C96-96F1-5A29C7C66123}
 AppName=Fast Viewshed
-AppVersion=3.4.0
+AppVersion={#AppVersion}
 AppPublisher=Fast Viewshed
 DefaultDirName={localappdata}\Programs\FastViewshed
-UsePreviousAppDir=no
+DefaultGroupName=Fast Viewshed
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
-Uninstallable=no
-DisableProgramGroupPage=yes
-DisableDirPage=no
 OutputDir={#OutputDir}
 OutputBaseFilename=FastViewshed_With_Logo_Setup
-SetupIconFile={#KitRoot}\aircraft.ico
+SetupIconFile={#StageDir}\assets\aircraft.ico
+UninstallDisplayIcon={app}\FastViewshed.exe
 Compression=none
 SolidCompression=no
 WizardStyle=modern
-MinVersion=10.0
+DisableProgramGroupPage=yes
+CloseApplications=yes
 AppMutex=FastViewshed.Desktop.Running
+MinVersion=10.0
+SetupLogging=yes
+[Tasks]
+Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: checkedonce
 [Files]
-Source: "{#KitRoot}\BaseSetup.exe"; Flags: dontcopy
-Source: "{#KitRoot}\desktop_customization.py"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#KitRoot}\check_offline.py"; DestDir: "{app}\scripts"; Flags: ignoreversion
-Source: "{#KitRoot}\_Verify_Branding.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#LogoFile}"; DestDir: "{app}\Branding"; DestName: "logo.png"; Flags: ignoreversion
+Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+[Icons]
+Name: "{group}\Fast Viewshed"; Filename: "{app}\FastViewshed.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\aircraft.ico"; AppUserModelID: "FastViewshed.Desktop"
+Name: "{autodesktop}\Fast Viewshed"; Filename: "{app}\FastViewshed.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\aircraft.ico"; Tasks: desktopicon; AppUserModelID: "FastViewshed.Desktop"
+Name: "{group}\Uninstall Fast Viewshed"; Filename: "{uninstallexe}"
 [Run]
 Filename: "{app}\FastViewshed.exe"; Description: "Open Fast Viewshed"; Flags: postinstall nowait skipifsilent
+[InstallDelete]
+Type: files; Name: "{app}\Branding\logo.png"
+Type: files; Name: "{app}\Branding\logo.jpg"
+Type: files; Name: "{app}\Branding\logo.jpeg"
+Type: files; Name: "{app}\Branding\logo.bmp"
+Type: files; Name: "{app}\Branding\logo.ico"
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\runtime_offline"
+Type: files; Name: "{app}\OFFLINE_INSTALL.log"
+Type: files; Name: "{app}\OFFLINE_CHECK.json"
+Type: files; Name: "{app}\RUNTIME_READY.json"
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ExitCode: Integer;
   Parameters: String;
-  LogFolder: String;
 begin
-  if CurStep = ssInstall then begin
-    ExtractTemporaryFile('BaseSetup.exe');
-    if GetSHA256OfFile(ExpandConstant('{tmp}\BaseSetup.exe')) <> '{#BaseSHA256}' then
-      RaiseException('The embedded base installer failed SHA256 verification.');
-    LogFolder := ExpandConstant('{localappdata}\FastViewshed\Logs');
-    ForceDirectories(LogFolder);
-    Parameters := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /TASKS="desktopicon" /DIR="' + ExpandConstant('{app}') + '" /LOG="' + LogFolder + '\BaseSetup.log"';
-    if not Exec(ExpandConstant('{tmp}\BaseSetup.exe'), Parameters, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
-      RaiseException('Unable to start the embedded offline installer.');
-    if ExitCode <> 0 then
-      RaiseException('Base installation failed. See ' + LogFolder + '\BaseSetup.log');
-  end;
   if CurStep = ssPostInstall then begin
-    Parameters := '/d /s /c ""' + ExpandConstant('{app}\_Verify_Branding.bat') + '""';
+    Parameters := '/d /s /c ""' + ExpandConstant('{app}\Install_Fast_Viewshed.bat') + '" --quiet"';
     if not Exec(ExpandConstant('{sys}\cmd.exe'), Parameters, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode) then
-      RaiseException('Unable to validate the installed branded application.');
+      RaiseException('Unable to initialize the bundled offline runtime.');
     if ExitCode <> 0 then
-      RaiseException('Branded application validation failed. See FastViewshed\Logs\BrandingCheck.log in LocalAppData.');
+      RaiseException('Offline initialization failed. See OFFLINE_INSTALL.log in the installation folder. No internet installation was attempted.');
   end;
 end;

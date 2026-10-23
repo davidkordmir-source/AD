@@ -24,16 +24,16 @@ only local extraction at the destination. Do not use an older online installer.
 
 def main():
     DIST.mkdir(exist_ok=True)
-    files = ["FastViewshed_GUI.py", "FastViewshed_GUI_COPY.txt", "Install_Fast_Viewshed.bat",
+    files = ["FastViewshed_GUI.py", "FastViewshed_GUI_COPY.txt", "desktop_customization.py", "Install_Fast_Viewshed.bat",
              "Run_Fast_Viewshed.bat", "Install_Fast_Viewshed_COPY.txt", "Run_Fast_Viewshed_COPY.txt",
-             "environment-fast.yml", "environment-fast_COPY.txt", "README_FAST_FA.md", "run_fast_gui.py",
+             "environment-fast.yml", "environment-fast_COPY.txt", "README_FAST_FA.md", "BRANDING_UPDATE_FA.txt", "run_fast_gui.py",
              "sector_viewshed/core.py", "sector_viewshed/__init__.py",
              "scripts/build_fast_standalone.py", "scripts/benchmark_fast.py",
              "scripts/validate_large_grid.py", "scripts/package_fast.py",
              "Check_Offline.bat", "_Activate_Offline.bat", "_Finalize_Offline.bat", "RELEASE_OFFLINE.md",
              "scripts/install_offline.ps1", "scripts/check_offline.py", "scripts/build_offline_windows.py",
              "scripts/test_offline_windows.ps1", "scripts/finalize_offline_release.py", "scripts/build_windows_installer.ps1", "scripts/test_windows_installer.ps1"]
-    for pattern in ("fast_viewshed/*.py", "fast_tests/test_*.py", "demo_fast/*", "assets/*", "installer/*"):
+    for pattern in ("fast_viewshed/*.py", "fast_tests/test_*.py", "demo_fast/*", "assets/*", "installer/*", "Branding/*"):
         files.extend(str(p.relative_to(ROOT)) for p in sorted(ROOT.glob(pattern)) if p.is_file())
     full = DIST/"FastViewshed_Source_v3.3.0.zip"
     with ZipFile(full.with_suffix(".tmp"), "w", ZIP_DEFLATED) as z:

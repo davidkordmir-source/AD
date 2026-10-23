@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import shutil
 import sys
 import tempfile
 import unittest
@@ -26,7 +27,7 @@ class DesktopCustomizationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.prefs = desktop.Preferences(self.root / 'profile')
+        self.prefs = desktop.Preferences(self.root / 'profile', self.root / 'app' / 'Branding')
         self.windows = []
 
     def tearDown(self):
@@ -196,6 +197,55 @@ class DesktopCustomizationTests(unittest.TestCase):
         self.qt.processEvents()
         self.assertTrue(splash.isVisible())
         splash.close()
+
+    def test_portable_logo_survives_move_and_fresh_machine_profile(self):
+        original = self.root / 'original.jpg'
+        image = QtGui.QImage(100, 60, QtGui.QImage.Format_RGB32)
+        image.fill(QtGui.QColor('#e02070'))
+        self.assertTrue(image.save(str(original)))
+        expected_color = QtGui.QImage(str(original)).pixelColor(50, 30).name()
+        self.prefs.install_brand_logo(original)
+        original.unlink()
+        relocated = self.root / 'other computer' / 'Branding'
+        shutil.move(str(self.prefs.branding_folder), str(relocated))
+        fresh = desktop.Preferences(self.root / 'new-profile', relocated)
+        self.assertTrue(fresh.verify('72381'))
+        self.assertFalse(fresh.verify('wrong'))
+        splash = desktop.create_splash(fresh, ROOT / 'assets' / 'aircraft.png')
+        self.assertEqual(splash.pixmap().toImage().pixelColor(310, 100).name(), expected_color)
+        splash.close()
+
+    def test_dropped_logo_overrides_old_user_logo_and_invalid_file_falls_back(self):
+        self.prefs.branding_folder.mkdir(parents=True)
+        old = self.root / 'old.png'
+        image = QtGui.QImage(100, 60, QtGui.QImage.Format_RGB32)
+        image.fill(QtGui.QColor('#112233'))
+        image.save(str(old))
+        self.prefs.data['ui'] = {'logo': str(old)}
+        dropped = self.prefs.branding_folder / 'logo.jpg'
+        image.fill(QtGui.QColor('#ee7722'))
+        image.save(str(dropped))
+        self.assertEqual(self.prefs.ui['logo'], str(dropped))
+        (self.prefs.branding_folder / 'logo.png').write_bytes(b'not an image')
+        self.assertEqual(self.prefs.ui['logo'], str(dropped))
+        dropped.unlink()
+        self.assertEqual(self.prefs.ui['logo'], str(old))
+
+    def test_bad_replacement_leaves_portable_logo_intact(self):
+        image = QtGui.QImage(20, 20, QtGui.QImage.Format_RGB32)
+        image.fill(QtGui.QColor('red'))
+        original = self.root / 'red.png'
+        image.save(str(original))
+        installed = Path(self.prefs.install_brand_logo(original))
+        before = installed.read_bytes()
+        with self.assertRaises(ValueError):
+            self.prefs.install_brand_logo(self.root / 'missing.png')
+        self.assertEqual(installed.read_bytes(), before)
+        with patch.object(desktop.os, 'replace', side_effect=PermissionError('read only')):
+            with self.assertRaises(PermissionError):
+                self.prefs.install_brand_logo(original)
+        self.assertEqual(installed.read_bytes(), before)
+        self.assertEqual(list(self.prefs.branding_folder.glob('*.tmp')), [])
 
 
 if __name__ == '__main__':

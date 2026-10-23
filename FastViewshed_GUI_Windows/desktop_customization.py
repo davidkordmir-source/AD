@@ -22,7 +22,8 @@ DEFAULTS = dict(title='دیدپذیری قطاعی — ورودی و خروجی 
 
 class Preferences:
     """Per-user local settings. Passwords are never stored as plaintext."""
-    def __init__(self, folder=None):
+    def __init__(self, folder=None, branding_folder=None):
+        self.branding_folder = Path(branding_folder) if branding_folder is not None else Path(__file__).resolve().parent / 'Branding'
         self.folder = Path(folder or os.environ.get('FAST_VIEWSHED_PROFILE') or
                            (Path(QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.GenericDataLocation)) / 'FastViewshed'))
         self.path = self.folder / 'desktop_settings.json'
@@ -82,7 +83,33 @@ class Preferences:
 
     @property
     def ui(self):
-        return {**DEFAULTS, **self.data.get('ui', {})}
+        ui = {**DEFAULTS, **self.data.get('ui', {})}
+        # Resolve against the application, never the working directory or the
+        # old computer's user profile. The shipped logo takes precedence.
+        for name in ('logo.png', 'logo.jpg', 'logo.jpeg', 'logo.bmp', 'logo.ico'):
+            candidate = self.branding_folder / name
+            if candidate.is_file() and not QtGui.QImage(str(candidate)).isNull():
+                ui['logo'] = str(candidate)
+                break
+        return ui
+
+    def install_brand_logo(self, filename):
+        """Atomically install a portable PNG beside the application."""
+        image = QtGui.QImage(str(filename))
+        if image.isNull():
+            raise ValueError('لوگو باید تصویر معتبر PNG، JPG، BMP یا ICO باشد.')
+        self.branding_folder.mkdir(parents=True, exist_ok=True)
+        target = self.branding_folder / 'logo.png'
+        fd, name = tempfile.mkstemp(prefix='logo_', suffix='.tmp', dir=self.branding_folder)
+        os.close(fd)
+        try:
+            if not image.save(name, 'PNG'):
+                raise ValueError('ذخیرهٔ لوگو ممکن نشد.')
+            os.replace(name, target)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+        return str(target)
 
     def copy_logo(self, filename):
         image = QtGui.QImage(str(filename))
@@ -309,7 +336,7 @@ class PersonalizationDialog(QtWidgets.QDialog):
         self.new_logo = None
         self.logo_label = QtWidgets.QLabel(Path(self.logo_path).name if self.logo_path else 'لوگوی همراه برنامه')
         form.addRow('لوگوی شروع', self.logo_label)
-        logo = QtWidgets.QPushButton('انتخاب لوگوی اختصاصی…')
+        logo = QtWidgets.QPushButton('انتخاب لوگوی همراه برنامه…')
         logo.clicked.connect(self.choose_logo)
         form.addRow(logo)
         self.new_password = QtWidgets.QLineEdit()
@@ -319,7 +346,7 @@ class PersonalizationDialog(QtWidgets.QDialog):
         self.confirm_password.setEchoMode(QtWidgets.QLineEdit.Password)
         form.addRow('رمز جدید مدیر (حداقل ۵ نویسه)', self.new_password)
         form.addRow('تکرار رمز جدید', self.confirm_password)
-        note = QtWidgets.QLabel('نقشه و لوگو محلی‌اند. لوگوی انتخابی از اجرای بعد در صفحهٔ شروع دیده می‌شود.')
+        note = QtWidgets.QLabel('لوگو در پوشهٔ Branding کنار برنامه ذخیره می‌شود و از اجرای بعد در صفحهٔ شروع دیده می‌شود. برای انتقال، کل پوشهٔ برنامه را کپی کنید. رمز فقط از بخش شخصی‌سازی داخل برنامه محافظت می‌کند، نه از دسترسی مستقیم به فایل‌ها.')
         note.setWordWrap(True)
         form.addRow(note)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
@@ -347,7 +374,7 @@ class PersonalizationDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, 'رمز مدیر', 'رمز حداقل ۵ نویسه باشد و تکرار آن یکسان باشد.')
             return
         try:
-            logo = self.preferences.copy_logo(self.new_logo) if self.new_logo else self.logo_path
+            logo = self.preferences.install_brand_logo(self.new_logo) if self.new_logo else self.logo_path
             self.preferences.data['ui'] = dict(title=self.title.text().strip() or DEFAULTS['title'],
                 font_size=self.font_size.value(), logo=logo, **{k: b.text() for k, b in self.colors.items()})
             if password:

@@ -42,7 +42,7 @@ def main():
     stage.mkdir(parents=True, exist_ok=True)
     files = ['desktop_customization.py', 'FastViewshed_GUI.py', 'FastViewshed_GUI_COPY.txt', 'Run_Fast_Viewshed.bat',
              'Install_Fast_Viewshed.bat', 'Check_Offline.bat', '_Activate_Offline.bat',
-             '_Finalize_Offline.bat', 'README_FAST_FA.md', 'environment-fast.yml',
+             '_Finalize_Offline.bat', 'README_FAST_FA.md', 'BRANDING_UPDATE_FA.txt', 'environment-fast.yml',
              'scripts/install_offline.ps1', 'scripts/check_offline.py']
     for relative in files:
         target = stage/relative
@@ -50,6 +50,7 @@ def main():
         shutil.copy2(ROOT/relative, target)
     shutil.copytree(ROOT/'demo_fast', stage/'demo_fast', dirs_exist_ok=True)
     shutil.copytree(ROOT/'assets', stage/'assets', dirs_exist_ok=True)
+    shutil.copytree(ROOT/'Branding', stage/'Branding', dirs_exist_ok=True)
     packages = []
     license_root = stage/'THIRD_PARTY_LICENSES'
     for record in sorted((runtime/'conda-meta').glob('*.json')):

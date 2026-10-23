@@ -23,7 +23,7 @@ Copy-Item -LiteralPath $logo -Destination $secondLogo
 & $shell -NoProfile -STA -ExecutionPolicy Bypass -File $builder -NonInteractive *> (Join-Path $Output 'AMBIGUOUS_LOGO_TEST.log')
 if ($LASTEXITCODE -eq 0) { throw 'Multiple input images were silently accepted.' }
 Remove-Item -LiteralPath $secondLogo
-& $shell -NoProfile -STA -ExecutionPolicy Bypass -File $builder -NonInteractive
+& $shell -NoProfile -STA -ExecutionPolicy Bypass -File $builder -NonInteractive 2>&1 | Tee-Object -FilePath (Join-Path $Output 'LOCAL_BUILD_v3.5.0.log')
 if ($LASTEXITCODE -ne 0) { throw 'Complete local build failed.' }
 if ((Get-FileHash -LiteralPath $logo -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'The original user logo was modified.' }
 $delivery = Join-Path $kit 'Output'
@@ -41,7 +41,7 @@ $rules = @('FV-complete-portable-python','FV-complete-portable-pythonw')
 try {
     New-NetFirewallRule -DisplayName $rules[0] -Direction Outbound -Action Block -Program (Join-Path $moved 'runtime_offline\python.exe') -Profile Any | Out-Null
     New-NetFirewallRule -DisplayName $rules[1] -Direction Outbound -Action Block -Program (Join-Path $moved 'runtime_offline\pythonw.exe') -Profile Any | Out-Null
-    & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet
+    & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet 2>&1 | Tee-Object -FilePath (Join-Path $Output 'PORTABLE_INSTALL_v3.5.0.log')
     if ($LASTEXITCODE -ne 0) { throw 'Transferred portable initialization failed.' }
     $markerPath = Join-Path $moved 'runtime_offline\.offline-ready.json'
     $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
@@ -59,6 +59,8 @@ try {
     if (-not $process.WaitForExit(60000)) { Stop-Process -Id $process.Id -Force; throw 'Portable GUI startup timed out.' }
     if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $smoke)) { throw 'Portable GUI did not start.' }
 } finally {
+    $installLog = Join-Path $moved 'OFFLINE_INSTALL.log'
+    if (Test-Path -LiteralPath $installLog) { Copy-Item -LiteralPath $installLog -Destination (Join-Path $Output 'PORTABLE_INSTALL_v3.5.0.log') -Force }
     foreach ($rule in $rules) { Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue }
     # This is the temporary test copy; the deliverable was already verified.
     if (Test-Path -LiteralPath $moved) { Remove-Item -LiteralPath $moved -Recurse -Force }

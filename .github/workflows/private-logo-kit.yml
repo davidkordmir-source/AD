@@ -58,7 +58,7 @@ jobs:
           New-Item -ItemType Directory -Path private-kit-output -Force | Out-Null
           @{status=$env:PRIVATE_KIT_JOB_STATUS;version='3.5.0';revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID} | ConvertTo-Json | Set-Content private-kit-output/PRIVATE_LOGO_COMPLETE_STATUS_v3.5.0.json -Encoding UTF8
           $files = @('private-kit-output/PRIVATE_LOGO_COMPLETE_STATUS_v3.5.0.json')
-          foreach ($name in @('PRIVATE_LOGO_COMPLETE_LOG_v3.5.0.txt','MISSING_LOGO_TEST.log','AMBIGUOUS_LOGO_TEST.log','SETUP_TEST.log','PORTABLE_GUI_SMOKE.json')) {
+          foreach ($name in @('PRIVATE_LOGO_COMPLETE_LOG_v3.5.0.txt','LOCAL_BUILD_v3.5.0.log','PORTABLE_INSTALL_v3.5.0.log','MISSING_LOGO_TEST.log','AMBIGUOUS_LOGO_TEST.log','SETUP_TEST.log','PORTABLE_GUI_SMOKE.json')) {
             $file = Join-Path 'private-kit-output' $name
             if (Test-Path -LiteralPath $file) { $files += $file }
           }

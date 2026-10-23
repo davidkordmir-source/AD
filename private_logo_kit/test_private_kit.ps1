@@ -43,6 +43,8 @@ try {
     New-NetFirewallRule -DisplayName $rules[1] -Direction Outbound -Action Block -Program (Join-Path $moved 'runtime_offline\pythonw.exe') -Profile Any | Out-Null
     & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet 2>&1 | Tee-Object -FilePath (Join-Path $Output 'PORTABLE_INSTALL_v3.5.0.log')
     if ($LASTEXITCODE -ne 0) { throw 'Transferred portable initialization failed.' }
+    $readiness = Get-Content -LiteralPath (Join-Path $moved 'RUNTIME_READY.json') -Raw | ConvertFrom-Json
+    if ($readiness.status -ne 'passed' -or $readiness.full_analysis_test) { throw 'Normal initialization did not use the fast runtime prerequisite check.' }
     $markerPath = Join-Path $moved 'runtime_offline\.offline-ready.json'
     $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
     if (-not $marker.used_preextracted_runtime) { throw 'Portable runtime was unnecessarily extracted again.' }
@@ -69,6 +71,6 @@ $installer = Join-Path $delivery 'FastViewshed_With_Logo_Setup.exe'
 & (Join-Path $root 'FastViewshed_GUI_Windows\scripts\test_windows_installer.ps1') -Installer $installer -Output $Output -Version '3.5.0'
 $report = Get-Content -LiteralPath (Join-Path $Output 'WINDOWS_INSTALLER_VALIDATION.json') -Raw | ConvertFrom-Json
 if ($report.status -ne 'passed' -or -not $report.native_gis.logo_locked -or $report.native_gis.shipped_logo_sha256 -ne $expected) { throw 'Installed application did not load the exact fixed embedded logo.' }
-@{status='passed';version='3.5.0';private_local_build=$true;complete_portable_files=$true;preextracted_runtime_reused=$true;separate_logo_absent=$true;logo_locked=$true;original_logo_preserved=$true;arbitrary_png_filename=$true;embedded_logo_sha256=$expected;radius_limit_km=5000;compact_numeric_display=$true;portable=$portableReport;windows=$report} |
+@{status='passed';version='3.5.0';private_local_build=$true;complete_portable_files=$true;preextracted_runtime_reused=$true;fast_initialization_check=$true;separate_logo_absent=$true;logo_locked=$true;original_logo_preserved=$true;arbitrary_png_filename=$true;embedded_logo_sha256=$expected;radius_limit_km=5000;compact_numeric_display=$true;portable=$portableReport;windows=$report} |
     ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $Output 'PRIVATE_LOGO_COMPLETE_VALIDATION_v3.5.0.json') -Encoding UTF8
 Write-Host 'PASS: full portable files, transfer, cached startup, embedded logo, radius, number display, real installed GUI and uninstall.'

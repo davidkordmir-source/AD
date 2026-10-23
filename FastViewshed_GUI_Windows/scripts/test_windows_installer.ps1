@@ -28,6 +28,20 @@ try {
     if (-not $gui.splash_shown -or -not $gui.password_protected_personalization -or -not $gui.custom_map_import -or $gui.map_features -ne 4510) { throw 'Custom map, protected UI or startup splash is missing.' }
     $native = Get-Content -LiteralPath (Join-Path $installed 'OFFLINE_CHECK.json') -Raw | ConvertFrom-Json
     if ($native.status -ne 'passed') { throw 'Installed runtime verification failed.' }
+    # Confirm Setup includes the original branding, independently of user settings.
+    $sourceBranding = Join-Path (Split-Path $PSScriptRoot -Parent) 'Branding'
+    $sourceLogos = @(Get-ChildItem -LiteralPath $sourceBranding -File | Where-Object { $_.Name -match '^logo\.(png|jpg|jpeg|bmp|ico)$' })
+    if ($sourceLogos.Count -gt 0 -and -not $native.shipped_logo) { throw 'Fresh-profile startup did not find a valid bundled logo.' }
+    foreach ($logo in $sourceLogos) {
+        $installedLogo = Join-Path (Join-Path $installed 'Branding') $logo.Name
+        if (-not (Test-Path -LiteralPath $installedLogo)) { throw ('Setup did not install Branding/' + $logo.Name) }
+        $expectedHash = (Get-FileHash -LiteralPath $logo.FullName -Algorithm SHA256).Hash
+        $actualHash = (Get-FileHash -LiteralPath $installedLogo -Algorithm SHA256).Hash
+        if ($expectedHash -ne $actualHash) { throw 'Installed startup logo differs from the source image.' }
+        if ($native.shipped_logo -eq $logo.Name -and $native.shipped_logo_sha256 -ne $expectedHash.ToLowerInvariant()) {
+            throw 'Fresh-profile startup did not load the installed logo.'
+        }
+    }
     $uninstall = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.DisplayName -like 'Fast Viewshed*' }
     if (-not $uninstall) { throw 'Windows uninstall registration is missing.' }
     $uninstaller = Join-Path $installed 'unins000.exe'

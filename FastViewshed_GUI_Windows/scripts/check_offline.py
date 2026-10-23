@@ -5,6 +5,7 @@ script is run by the private interpreter with outbound access blocked in CI.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -121,7 +122,19 @@ def main():
         # Start the actual GUI, read fields and drive its real worker thread.
         qt = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         import desktop_customization as desktop
-        preferences = desktop.Preferences(root/'profile')
+        # Inspect the actual shipped logo with a fresh profile before running
+        # synthetic personalization tests. Never modify the shipped Branding.
+        shipped_preferences = desktop.Preferences(root/'shipped-profile')
+        shipped_logo = shipped_preferences.ui['logo']
+        shipped_logo_sha256 = None
+        if shipped_logo:
+            shipped_logo_sha256 = hashlib.sha256(Path(shipped_logo).read_bytes()).hexdigest()
+        shipped_splash = desktop.create_splash(shipped_preferences, app_folder/'assets'/'aircraft.png')
+        shipped_splash.show()
+        qt.processEvents()
+        assert shipped_splash.isVisible() and not shipped_splash.pixmap().isNull()
+        shipped_splash.close()
+        preferences = desktop.Preferences(root/'profile', root/'test-branding')
         assert preferences.configured
         window = application['FastWindow'](preferences)
         window.inputs["points"].setText(str(points))
@@ -185,7 +198,7 @@ def main():
         logo.fill(QtGui.QColor('#e02070'))
         logo_file = root/'test_company_logo.png'
         assert logo.save(str(logo_file))
-        copied = preferences.copy_logo(logo_file)
+        copied = preferences.install_brand_logo(logo_file)
         preferences.data['ui'] = dict(logo=copied, title='Offline custom title', font_size=14, accent='#554488')
         preferences.save()
         logo_file.unlink()
@@ -206,7 +219,9 @@ def main():
                   gdal=gdal.VersionInfo("RELEASE_NAME"), qt=QtCore.qVersion(), numpy=np.__version__,
                   proj_network=False, private_runtime=True, shapefile_round_trip=True,
                   transmitter_receiver_regression=True, gui_worker=True, previews=2, invalid_record_skipping=True,
-                  all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=False, aircraft_icon=True, default_user_map_features=4510, custom_map_import=True, protected_personalization=True, custom_logo_splash=True)
+                  all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=False, aircraft_icon=True, default_user_map_features=4510, custom_map_import=True, protected_personalization=True, custom_logo_splash=True,
+                  shipped_logo=Path(shipped_logo).name if shipped_logo else None,
+                  shipped_logo_sha256=shipped_logo_sha256)
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("Offline runtime verification passed: GDAL, NumPy, Qt, real viewshed and GUI.")
 

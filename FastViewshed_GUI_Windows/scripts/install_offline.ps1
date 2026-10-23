@@ -1,5 +1,11 @@
 $ErrorActionPreference = 'Stop'
 $started = [Diagnostics.Stopwatch]::StartNew()
+function Get-RuntimeSha256([string]$FilePath) {
+    $stream = [IO.File]::OpenRead($FilePath)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+    finally { $stream.Dispose(); $algorithm.Dispose() }
+}
 try {
     $appRoot = Split-Path -Parent $PSScriptRoot
     $manifestPath = Join-Path $appRoot 'RUNTIME_MANIFEST.json'
@@ -44,7 +50,7 @@ try {
             foreach ($entry in $packed.files) {
                 $file = [IO.Path]::GetFullPath((Join-Path $runtimePath $entry.path))
                 if (-not $file.StartsWith($runtimeRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid portable runtime manifest path.' }
-                if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) {
+                if (-not (Test-Path -LiteralPath $file -PathType Leaf) -or (Get-RuntimeSha256 -FilePath $file) -ne $entry.sha256) {
                     $prepared = $false
                     break
                 }

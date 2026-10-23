@@ -18,6 +18,8 @@ def main():
     import numpy as np
     from osgeo import gdal, osr
     from PySide6 import QtCore, QtWidgets
+    gdal.UseExceptions()
+    osr.UseExceptions()
     reference = osr.SpatialReference()
     if reference.ImportFromEPSG(4326) != 0:
         raise RuntimeError('The bundled PROJ database is unavailable.')

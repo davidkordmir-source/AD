@@ -1,6 +1,13 @@
-# Fast Viewshed 3.5 — بستهٔ کامل با لوگوی داخلی
+# Fast Viewshed 3.5.1 — بستهٔ کامل با لوگوی داخلی
 
-[**دانلود ابزار ساخت بستهٔ کامل ۳٫۵**](https://github.com/davidkordmir-source/AD/releases/download/v3.5.0-private-kit/FastViewshed_Complete_Private_Kit_v3.5.0.zip)
+[**دانلود ابزار ساخت بستهٔ کامل ۳٫۵٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/FastViewshed_Complete_Private_Kit_v3.5.1.zip)
+
+اگر بستهٔ کامل **۳٫۵٫۰** را دارید و هنگام ساخت Output خطای مسیر طولانی می‌بینید،
+فقط [**اصلاحیهٔ کوچک ۳٫۵٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/FastViewshed_Long_Path_Fix_v3.5.1.zip)
+را بگیرید. محتویات آن را کنار `Build_Custom_Setup.bat` و پوشهٔ `Payload` قبلی بریزید،
+`Apply_Path_Fix.bat` را اجرا کنید و سپس `Build_Custom_Setup.bat` را دوباره اجرا کنید.
+لوگو و Output قبلی حفظ می‌شوند و دانلود دوبارهٔ بستهٔ بزرگ لازم نیست.
+ابزار از مسیر کوتاه موقت استفاده می‌کند؛ نیازی به Administrator یا تغییر رجیستری ندارید.
 
 ZIP را استخراج کنید، لوگوی PNG خود را داخل `Logo_Input` بگذارید و
 `Build_Custom_Setup.bat` را اجرا کنید. ساخت محلی و آفلاین است و لوگو آپلود نمی‌شود.
@@ -15,7 +22,7 @@ ZIP را استخراج کنید، لوگوی PNG خود را داخل `Logo_Inp
 با `Check_Offline.bat` جداگانه قابل اجراست. زمان آماده‌سازی اولیه به دیسک و
 سیستم مقصد وابسته است؛ اجرای دوباره از وابستگی‌های آماده‌شده استفاده می‌کند.
 
-[گزارش آزمایش نسخهٔ کامل روی ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.5.0-private-kit/PRIVATE_LOGO_COMPLETE_VALIDATION_v3.5.0.json)
+[گزارش آزمایش نسخهٔ تازه و اصلاحیهٔ بستهٔ قبلی روی ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json)
 
 ## نصب‌کنندهٔ پایهٔ قبلی، نسخهٔ ۳٫۴
 

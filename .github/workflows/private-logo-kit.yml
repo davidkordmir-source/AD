@@ -1,4 +1,4 @@
-name: Build and test complete private logo kit 3.5
+name: Build and test complete private logo kit 3.5.1
 on:
   push:
     branches: [fast-viewshed-gui]
@@ -32,23 +32,34 @@ jobs:
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6'
           python private_logo_kit/package_private_kit.py --offline-archive private-kit-output/VerifiedOffline.zip --compiler $compiler --output private-kit-output
           if ($LASTEXITCODE -ne 0) { throw 'Complete kit packaging failed.' }
-      - name: Test full output, transferred portable runtime and actual installation
+          python private_logo_kit/package_path_fix.py --output private-kit-output
+          if ($LASTEXITCODE -ne 0) { throw 'Small path fix packaging failed.' }
+      - name: Test both the fresh kit and the small update to the original kit
         run: |
-          Start-Transcript -Path private-kit-output/PRIVATE_LOGO_COMPLETE_LOG_v3.5.0.txt
+          Start-Transcript -Path private-kit-output/PRIVATE_LONG_PATH_LOG_v3.5.1.txt
           try {
-            ./private_logo_kit/test_private_kit.ps1 -Archive private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.0.zip -Output ((Resolve-Path private-kit-output).Path)
+            $out = (Resolve-Path private-kit-output).Path
+            New-Item -ItemType Directory -Path "$out/Fresh","$out/Upgrade" | Out-Null
+            ./private_logo_kit/test_private_kit.ps1 -Archive "$out/FastViewshed_Complete_Private_Kit_v3.5.1.zip" -Output "$out/Fresh"
+            Invoke-WebRequest -Uri 'https://github.com/davidkordmir-source/AD/releases/download/v3.5.0-private-kit/FastViewshed_Complete_Private_Kit_v3.5.0.zip' -OutFile "$out/Original_3.5.0.zip"
+            if ((Get-FileHash "$out/Original_3.5.0.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'fd484a19a70eead74dd5d9372cfdaa8860fe17cc87b5b9825950b5e79bb3d1aa') { throw 'Original complete kit checksum mismatch.' }
+            ./private_logo_kit/test_private_kit.ps1 -Archive "$out/Original_3.5.0.zip" -PathFix "$out/FastViewshed_Long_Path_Fix_v3.5.1.zip" -Output "$out/Upgrade"
+            $fresh = Get-Content "$out/Fresh/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json" -Raw | ConvertFrom-Json
+            $upgrade = Get-Content "$out/Upgrade/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json" -Raw | ConvertFrom-Json
+            if ($fresh.status -ne 'passed' -or $upgrade.status -ne 'passed' -or -not $upgrade.small_updater_tested) { throw 'Long-path regression did not pass both distributions.' }
+            @{status='passed';builder_version='3.5.1';revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID;fresh=$fresh;upgraded_existing_3_5_0=$upgrade} | ConvertTo-Json -Depth 20 | Set-Content "$out/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json" -Encoding UTF8
           } finally { Stop-Transcript }
-      - name: Publish the verified complete toolkit
+      - name: Publish the verified complete toolkit and small updater
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view v3.5.0-private-kit *> $null
+          gh release view v3.5.1-private-kit *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create v3.5.0-private-kit --target $env:GITHUB_SHA --title 'Fast Viewshed 3.5 - complete offline output with embedded private logo' --notes-file private_logo_kit/RELEASE_FA.md
+            gh release create v3.5.1-private-kit --target $env:GITHUB_SHA --title 'Fast Viewshed 3.5.1 - fix long Windows build paths' --notes-file private_logo_kit/RELEASE_FA.md
             if ($LASTEXITCODE -ne 0) { throw 'Creating the verified release failed.' }
           }
-          gh release upload v3.5.0-private-kit private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.0.zip private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.0.zip.sha256 private-kit-output/PRIVATE_LOGO_COMPLETE_VALIDATION_v3.5.0.json --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Verified complete kit publication failed.' }
+          gh release upload v3.5.1-private-kit private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.1.zip private-kit-output/FastViewshed_Complete_Private_Kit_v3.5.1.zip.sha256 private-kit-output/FastViewshed_Long_Path_Fix_v3.5.1.zip private-kit-output/FastViewshed_Long_Path_Fix_v3.5.1.zip.sha256 private-kit-output/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Verified kit and updater publication failed.' }
       - name: Publish build status and diagnostic logs
         if: always()
         env:
@@ -56,11 +67,13 @@ jobs:
           PRIVATE_KIT_JOB_STATUS: ${{ job.status }}
         run: |
           New-Item -ItemType Directory -Path private-kit-output -Force | Out-Null
-          @{status=$env:PRIVATE_KIT_JOB_STATUS;version='3.5.0';revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID} | ConvertTo-Json | Set-Content private-kit-output/PRIVATE_LOGO_COMPLETE_STATUS_v3.5.0.json -Encoding UTF8
-          $files = @('private-kit-output/PRIVATE_LOGO_COMPLETE_STATUS_v3.5.0.json')
-          foreach ($name in @('PRIVATE_LOGO_COMPLETE_LOG_v3.5.0.txt','LOCAL_BUILD_v3.5.0.log','PORTABLE_INSTALL_v3.5.0.log','MISSING_LOGO_TEST.log','AMBIGUOUS_LOGO_TEST.log','SETUP_TEST.log','PORTABLE_GUI_SMOKE.json')) {
-            $file = Join-Path 'private-kit-output' $name
-            if (Test-Path -LiteralPath $file) { $files += $file }
+          @{status=$env:PRIVATE_KIT_JOB_STATUS;version='3.5.1';revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID} | ConvertTo-Json | Set-Content private-kit-output/PRIVATE_LONG_PATH_STATUS_v3.5.1.json -Encoding UTF8
+          $files = @('private-kit-output/PRIVATE_LONG_PATH_STATUS_v3.5.1.json')
+          foreach ($item in (Get-ChildItem private-kit-output -File -Recurse | Where-Object { $_.Extension -in @('.log','.txt') -and $_.Name -notlike '*.sha256' })) {
+            $prefix = if ($item.Directory.Name -in @('Fresh','Upgrade')) { $item.Directory.Name + '_' } else { '' }
+            $diagnostic = Join-Path 'private-kit-output' ($prefix + $item.Name)
+            if ($item.FullName -ne [IO.Path]::GetFullPath($diagnostic)) { Copy-Item -LiteralPath $item.FullName -Destination $diagnostic -Force }
+            $files += $diagnostic
           }
           gh release upload v3.4.0-installer @files --clobber
           if ($LASTEXITCODE -ne 0) {
@@ -72,7 +85,7 @@ jobs:
         with:
           name: complete-private-kit-verification
           path: |
-            private-kit-output/*.json
-            private-kit-output/*.txt
-            private-kit-output/*.log
+            private-kit-output/**/*.json
+            private-kit-output/**/*.txt
+            private-kit-output/**/*.log
           retention-days: 7

@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 
 OFFLINE_SHA256 = '07640d806a43a961b7134a661854cbba85317896ff4b3a707ab1b3242e25a404'
-ARCHIVE_NAME = 'FastViewshed_Complete_Private_Kit_v3.5.0.zip'
+ARCHIVE_NAME = 'FastViewshed_Complete_Private_Kit_v3.5.1.zip'
 PREFIX = 'FastViewshed_Private_Logo_Kit/'
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -57,7 +57,7 @@ def package(offline_archive, compiler, output):
         files = {'Payload/' + source.relative_to(payload).as_posix(): source
                  for source in payload.rglob('*') if source.is_file()}
         for name in ['Build_Custom_Setup.bat', 'Build_Custom_Setup.ps1', 'PrivateLogo.iss',
-                     'Embed_Logo.ps1', 'OUTPUT_README_FA.txt', 'README_FA.txt', 'Logo_Input/README_FA.txt']:
+                     'Embed_Logo.ps1', 'Short_Paths.ps1', 'OUTPUT_README_FA.txt', 'README_FA.txt', 'Logo_Input/README_FA.txt']:
             files[name] = ROOT / 'private_logo_kit' / name
         files['FastViewshedLauncher.cs'] = app / 'installer/FastViewshedLauncher.cs'
         for source in sorted(compiler.rglob('*')):
@@ -65,7 +65,7 @@ def package(offline_archive, compiler, output):
                 files['Toolchain/' + source.relative_to(compiler).as_posix()] = source
         if not any('license' in name.lower() for name in files if name.startswith('Toolchain/')):
             raise ValueError('The compiler license must be included.')
-        manifest = {'version': '3.5.0', 'files': []}
+        manifest = {'version': '3.5.1', 'files': []}
         with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
             archive.mkdir(PREFIX)
             archive.mkdir(PREFIX + 'Logo_Input/')

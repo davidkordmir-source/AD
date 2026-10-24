@@ -1,8 +1,12 @@
 param([string]$OutputDirectory, [string]$LogoFile, [switch]$NonInteractive)
 $ErrorActionPreference = 'Stop'
 $work = $null
+$pathMapping = $null
 try {
-    $kit = $PSScriptRoot
+    $kitOriginal = $PSScriptRoot
+    . (Join-Path $kitOriginal 'Short_Paths.ps1')
+    $pathMapping = New-FVShortPath -Directory $kitOriginal
+    $kit = $pathMapping.Root
     $logoFolder = Join-Path $kit 'Logo_Input'
     if ($LogoFile) {
         $logo = [IO.Path]::GetFullPath($LogoFile)
@@ -52,11 +56,15 @@ try {
     }
     if (-not $OutputDirectory) { $OutputDirectory = Join-Path $kit 'Output' }
     $destination = [IO.Path]::GetFullPath($OutputDirectory)
+    $originalPrefix = [IO.Path]::GetFullPath($kitOriginal).TrimEnd('\') + '\'
+    if ($destination.StartsWith($originalPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        $destination = Join-Path $kit $destination.Substring($originalPrefix.Length)
+    }
     $runtimeInfo = Get-Content -LiteralPath (Join-Path $kit 'Payload\RUNTIME_MANIFEST.json') -Raw | ConvertFrom-Json
     $archiveSize = (Get-Item -LiteralPath (Join-Path $kit 'Payload\runtime_win64.zip')).Length
     $required = [long]$runtimeInfo.uncompressed_bytes + 4 * $archiveSize + 512MB
-    $drive = Get-PSDrive -Name ([IO.Path]::GetPathRoot($kit).Substring(0, 1))
-    if ($drive.Free -lt $required) { throw ('Not enough free disk space. Need about ' + [math]::Ceiling($required / 1GB) + ' GB for the complete output.') }
+    $drive = New-Object System.IO.DriveInfo([IO.Path]::GetPathRoot($kitOriginal))
+    if ($drive.AvailableFreeSpace -lt $required) { throw ('Not enough free disk space. Need about ' + [math]::Ceiling($required / 1GB) + ' GB for the complete output.') }
     $work = Join-Path $kit ('_Build_' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $work | Out-Null
     Copy-Item -LiteralPath $logo -Destination (Join-Path $work 'logo.png')
@@ -115,13 +123,19 @@ try {
         if ($previous -and -not (Test-Path -LiteralPath $destination)) { Move-Item -LiteralPath $previous -Destination $destination }
         throw
     }
-    Write-Host ('Ready: ' + $destination) -ForegroundColor Green
+    Write-Host ('Ready: ' + (Get-FVPhysicalPath -Path $destination -Mapping $pathMapping)) -ForegroundColor Green
     Write-Host 'Output includes the installer AND the full Portable folder, with all runtime files. No separate logo file is included.'
-    if ($previous) { Write-Host ('Previous output preserved: ' + $previous) }
+    if ($previous) { Write-Host ('Previous output preserved: ' + (Get-FVPhysicalPath -Path $previous -Mapping $pathMapping)) }
     exit 0
 } catch {
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
 } finally {
-    if ($work -and (Test-Path -LiteralPath $work)) { Remove-Item -LiteralPath $work -Recurse -Force }
+    try {
+        if ($work -and (Test-Path -LiteralPath $work)) { Remove-Item -LiteralPath $work -Recurse -Force }
+    } catch {
+        Write-Warning ('Temporary files could not be fully removed: ' + (Get-FVPhysicalPath -Path $work -Mapping $pathMapping) + '. ' + $_.Exception.Message)
+    } finally {
+        if ($pathMapping) { Remove-FVShortPath -Mapping $pathMapping }
+    }
 }

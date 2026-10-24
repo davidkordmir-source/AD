@@ -40,10 +40,10 @@ jobs:
           try {
             $out = (Resolve-Path private-kit-output).Path
             New-Item -ItemType Directory -Path "$out/Fresh","$out/Upgrade" | Out-Null
-            ./private_logo_kit/test_private_kit.ps1 -Archive "$out/FastViewshed_Complete_Private_Kit_v3.5.1.zip" -Output "$out/Fresh"
             Invoke-WebRequest -Uri 'https://github.com/davidkordmir-source/AD/releases/download/v3.5.0-private-kit/FastViewshed_Complete_Private_Kit_v3.5.0.zip' -OutFile "$out/Original_3.5.0.zip"
             if ((Get-FileHash "$out/Original_3.5.0.zip" -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'fd484a19a70eead74dd5d9372cfdaa8860fe17cc87b5b9825950b5e79bb3d1aa') { throw 'Original complete kit checksum mismatch.' }
             ./private_logo_kit/test_private_kit.ps1 -Archive "$out/Original_3.5.0.zip" -PathFix "$out/FastViewshed_Long_Path_Fix_v3.5.1.zip" -Output "$out/Upgrade"
+            ./private_logo_kit/test_private_kit.ps1 -Archive "$out/FastViewshed_Complete_Private_Kit_v3.5.1.zip" -Output "$out/Fresh"
             $fresh = Get-Content "$out/Fresh/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json" -Raw | ConvertFrom-Json
             $upgrade = Get-Content "$out/Upgrade/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json" -Raw | ConvertFrom-Json
             if ($fresh.status -ne 'passed' -or $upgrade.status -ne 'passed' -or -not $upgrade.small_updater_tested) { throw 'Long-path regression did not pass both distributions.' }

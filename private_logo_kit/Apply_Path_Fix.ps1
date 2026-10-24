@@ -57,7 +57,7 @@ try {
     $manifest.version = '3.5.1'
     $manifestTemp = Join-Path $kit ('KIT_FILES_SHA256.' + [guid]::NewGuid().ToString('N') + '.tmp')
     [IO.File]::WriteAllText($manifestTemp, ($manifest | ConvertTo-Json -Depth 10), [Text.Encoding]::UTF8)
-    [IO.File]::Replace($manifestTemp, $manifestPath, $null)
+    [IO.File]::Replace($manifestTemp, $manifestPath, (Join-Path $backup 'replaced-manifest.json'))
     $backupReady = $false
     Write-Host 'Fix applied (3.5.1). Run Build_Custom_Setup.bat again.' -ForegroundColor Green
     Write-Host 'No administrator access or Windows setting change is needed. Your logo stays local.'

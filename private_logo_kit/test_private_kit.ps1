@@ -25,7 +25,7 @@ if ($PathFix) {
     [IO.File]::WriteAllText($sentinel, 'Private user input must remain untouched.')
     [IO.File]::WriteAllText($previousOutput, 'Previous output must remain untouched.')
     foreach ($attempt in 1..2) {
-        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Path_Fix.ps1')
+        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Path_Fix.ps1') 2>&1 | Tee-Object -FilePath (Join-Path $Output ('APPLY_PATH_FIX_' + $attempt + '.log'))
         if ($LASTEXITCODE -ne 0) { throw ('Applying the small updater failed, attempt ' + $attempt) }
     }
     if ([IO.File]::ReadAllText($sentinel) -ne 'Private user input must remain untouched.' -or [IO.File]::ReadAllText($previousOutput) -ne 'Previous output must remain untouched.') { throw 'Updater changed user input or previous output.' }
@@ -33,7 +33,7 @@ if ($PathFix) {
     try {
         [IO.File]::AppendAllText($builder, "`n# Deliberately changed local file")
         $changedHash = (Get-FileHash -LiteralPath $builder).Hash
-        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Path_Fix.ps1')
+        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Path_Fix.ps1') 2>&1 | Tee-Object -FilePath (Join-Path $Output 'MODIFIED_KIT_REJECTED.log')
         if ($LASTEXITCODE -eq 0 -or (Get-FileHash -LiteralPath $builder).Hash -ne $changedHash) { throw 'Updater failed to reject or preserve a modified kit file.' }
     } finally { [IO.File]::WriteAllBytes($builder, $builderBytes) }
 }

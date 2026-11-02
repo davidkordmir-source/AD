@@ -7,3 +7,4 @@
 *.dpapi
 *.fvlicense
 *.fvrequest
+**/fast-test-results/

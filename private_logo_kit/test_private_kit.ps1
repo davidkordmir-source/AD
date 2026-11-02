@@ -25,7 +25,7 @@ if ($PathFix) {
     [IO.File]::WriteAllText($sentinel, 'Private user input must remain untouched.')
     [IO.File]::WriteAllText($previousOutput, 'Previous output must remain untouched.')
     foreach ($attempt in 1..2) {
-        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Path_Fix.ps1') 2>&1 | Tee-Object -FilePath (Join-Path $Output ('APPLY_PATH_FIX_' + $attempt + '.log'))
+        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_3_6_Update.ps1') 2>&1 | Tee-Object -FilePath (Join-Path $Output ('APPLY_PATH_FIX_' + $attempt + '.log'))
         if ($LASTEXITCODE -ne 0) { throw ('Applying the small updater failed, attempt ' + $attempt) }
     }
     if ([IO.File]::ReadAllText($sentinel) -ne 'Private user input must remain untouched.' -or [IO.File]::ReadAllText($previousOutput) -ne 'Previous output must remain untouched.') { throw 'Updater changed user input or previous output.' }
@@ -33,7 +33,7 @@ if ($PathFix) {
     try {
         [IO.File]::AppendAllText($builder, "`n# Deliberately changed local file")
         $changedHash = (Get-FileHash -LiteralPath $builder).Hash
-        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_Path_Fix.ps1') 2>&1 | Tee-Object -FilePath (Join-Path $Output 'MODIFIED_KIT_REJECTED.log')
+        & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'Apply_3_6_Update.ps1') 2>&1 | Tee-Object -FilePath (Join-Path $Output 'MODIFIED_KIT_REJECTED.log')
         if ($LASTEXITCODE -eq 0 -or (Get-FileHash -LiteralPath $builder).Hash -ne $changedHash) { throw 'Updater failed to reject or preserve a modified kit file.' }
     } finally { [IO.File]::WriteAllBytes($builder, $builderBytes) }
 }
@@ -93,6 +93,10 @@ try {
     $markerHash = (Get-FileHash -LiteralPath $markerPath).Hash
     & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet
     if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $markerPath).Hash -ne $markerHash) { throw 'Repeated startup did not reuse initialized dependencies.' }
+    & (Join-Path $moved 'runtime_offline\python.exe') (Join-Path $PSScriptRoot 'test_licensed_runtime.py') --app $moved --owner (Join-Path $kit 'License_Owner\Owner_Licensing.ps1') --owner-data (Join-Path $kit 'License_OwnerData') --output $Output
+    if ($LASTEXITCODE -ne 0) { throw 'Actual Windows licensing regression failed.' }
+    $licensingReport = Get-Content -LiteralPath (Join-Path $Output 'LICENSE_VALIDATION_v3.6.0.json') -Raw | ConvertFrom-Json
+    if (Get-ChildItem -LiteralPath $moved -Recurse -File | Where-Object { $_.Name -eq 'Private_Key.dpapi' -or $_.FullName -like '*License_OwnerData*' -or $_.Name -eq 'Owner_Licensing.ps1' }) { throw 'Owner secrets or issuer were copied to the recipient.' }
     & (Join-Path $moved 'Check_Offline.bat') --quiet
     if ($LASTEXITCODE -ne 0) { throw 'Portable application full regression failed.' }
     $portableReport = Get-Content -LiteralPath (Join-Path $moved 'OFFLINE_CHECK.json') -Raw | ConvertFrom-Json
@@ -110,11 +114,11 @@ try {
     if (Test-Path -LiteralPath $moved) { Remove-Item -LiteralPath $moved -Recurse -Force }
 }
 $installer = Join-Path $delivery 'FastViewshed_With_Logo_Setup.exe'
-& (Join-Path $root 'FastViewshed_GUI_Windows\scripts\test_windows_installer.ps1') -Installer $installer -Output $Output -Version '3.5.0'
+& (Join-Path $root 'FastViewshed_GUI_Windows\scripts\test_windows_installer.ps1') -Installer $installer -Output $Output -Version '3.6.0'
 $report = Get-Content -LiteralPath (Join-Path $Output 'WINDOWS_INSTALLER_VALIDATION.json') -Raw | ConvertFrom-Json
 if ($report.status -ne 'passed' -or -not $report.native_gis.logo_locked -or $report.native_gis.shipped_logo_sha256 -ne $expected) { throw 'Installed application did not load the exact fixed embedded logo.' }
-@{status='passed';version='3.5.0';builder_version='3.5.1';long_paths_disabled_during_build=$true;longest_regression_file=$deepFile.Length;existing_mapping_preserved=$true;temporary_mappings_released=$true;temporary_build_files_removed=$true;small_updater_tested=[bool]$PathFix;private_local_build=$true;complete_portable_files=$true;preextracted_runtime_reused=$true;fast_initialization_check=$true;separate_logo_absent=$true;logo_locked=$true;original_logo_preserved=$true;arbitrary_png_filename=$true;embedded_logo_sha256=$expected;radius_limit_km=5000;compact_numeric_display=$true;portable=$portableReport;windows=$report} |
-    ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $Output 'PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json') -Encoding UTF8
+@{status='passed';version='3.6.0';licensing=$licensingReport;builder_version='3.6.0';long_paths_disabled_during_build=$true;longest_regression_file=$deepFile.Length;existing_mapping_preserved=$true;temporary_mappings_released=$true;temporary_build_files_removed=$true;small_updater_tested=[bool]$PathFix;private_local_build=$true;complete_portable_files=$true;preextracted_runtime_reused=$true;fast_initialization_check=$true;separate_logo_absent=$true;logo_locked=$true;original_logo_preserved=$true;arbitrary_png_filename=$true;embedded_logo_sha256=$expected;radius_limit_km=5000;compact_numeric_display=$true;portable=$portableReport;windows=$report} |
+    ConvertTo-Json -Depth 15 | Set-Content -LiteralPath (Join-Path $Output 'LICENSED_KIT_VALIDATION_v3.6.0.json') -Encoding UTF8
 Write-Host 'PASS: full portable files, transfer, cached startup, embedded logo, radius, number display, real installed GUI and uninstall.'
 # Only the isolated test copy is removed; updater/build scripts preserve user files.
 Remove-Item -LiteralPath $testRoot -Recurse -Force

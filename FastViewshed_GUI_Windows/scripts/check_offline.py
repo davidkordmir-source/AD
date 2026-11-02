@@ -140,6 +140,9 @@ def main():
         preferences = desktop.Preferences(root/'profile', root/'test-branding')
         assert preferences.configured
         window = application['FastWindow'](preferences)
+        if application['licensing'].LICENSING_REQUIRED:
+            window.license_guard = application['licensing'].LicenseGuard()
+            window.license_guard.check()
         assert window.inputs['radius'].text() == '5'
         assert window.inputs['observer'].text() == '100'
         window.inputs['atmospheric_factor'].setValue(1.33333)
@@ -232,7 +235,7 @@ def main():
                   all_invalid_empty_shapefile=True, skip_report_written=True, combined_attribute_filename=True, offline_osm_map=False, aircraft_icon=True, default_user_map_features=4510, custom_map_import=True, protected_personalization=True, custom_logo_splash=True,
                   shipped_logo=Path(shipped_logo).name if shipped_logo else None,
                   shipped_logo_sha256=shipped_logo_sha256, logo_locked=shipped_preferences.logo_locked,
-                  radius_limit_km=5000, compact_numeric_display=True, version='3.5.0')
+                  radius_limit_km=5000, compact_numeric_display=True, version='3.6.0')
     Path(args.report).write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("Offline runtime verification passed: GDAL, NumPy, Qt, real viewshed and GUI.")
 

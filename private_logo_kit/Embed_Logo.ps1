@@ -1,6 +1,6 @@
-param([Parameter(Mandatory=$true)][string]$Executable, [Parameter(Mandatory=$true)][string]$Logo)
+param([Parameter(Mandatory=$true)][string]$Executable, [Parameter(Mandatory=$true)][string]$Logo, [int]$ResourceId=101)
 $ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @'
+if (-not ('FVNativeBranding' -as [type])) { Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class FVNativeBranding {
@@ -14,13 +14,14 @@ public static class FVNativeBranding {
     public static extern bool EndUpdateResource(IntPtr handle, bool discard);
 }
 '@
+}
 $bytes = [IO.File]::ReadAllBytes($Logo)
 if ($bytes.Length -gt 32MB) { throw 'The PNG logo must be at most 32 MB.' }
 $handle = [FVNativeBranding]::BeginUpdateResource($Executable, $false)
 if ($handle -eq [IntPtr]::Zero) { throw (New-Object ComponentModel.Win32Exception) }
 $committed = $false
 try {
-    if (-not [FVNativeBranding]::UpdateResource($handle, [IntPtr]10, [IntPtr]101, 0, $bytes, $bytes.Length)) { throw (New-Object ComponentModel.Win32Exception) }
+    if (-not [FVNativeBranding]::UpdateResource($handle, [IntPtr]10, [IntPtr]$ResourceId, 0, $bytes, $bytes.Length)) { throw (New-Object ComponentModel.Win32Exception) }
     if (-not [FVNativeBranding]::EndUpdateResource($handle, $false)) { throw (New-Object ComponentModel.Win32Exception) }
     $committed = $true
 } finally {

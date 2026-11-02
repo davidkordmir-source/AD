@@ -817,7 +817,11 @@ try:
         lat = max(-85.05112878, min(85.05112878, lat))
         return QtCore.QPointF(lon * MAP_LIMIT / 180, -6378137 * math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)))
 
-    class OfflineBoundaryMap(QtWidgets.QGraphicsView):
+    import licensing
+    from license_dialog import ActivationDialog, enforce_runtime_license, license_summary
+    from professional_ui import ProfessionalMapMixin, STYLE
+
+    class _BoundaryMapBase(QtWidgets.QGraphicsView):
 
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -851,6 +855,7 @@ try:
                 if points:
                     labels = load_map_file(points)
                     data['paths'].extend(labels['paths'])
+                    data['labels'].extend(labels.get('labels', []))
                     data['count'] += labels['count']
                     data['bounds'] = data['bounds'].united(labels['bounds'])
                 self.replace_background(data)
@@ -1069,6 +1074,10 @@ try:
             super().resizeEvent(event)
             if self.initial_fit:
                 self.fit_world()
+
+    class OfflineBoundaryMap(ProfessionalMapMixin, _BoundaryMapBase):
+        pass
+
     'Qt desktop GUI. GDAL runs on a worker thread; there is no ArcPy import.'
     import os
     import json
@@ -1187,10 +1196,12 @@ try:
         def __init__(self, preferences=None):
             super().__init__()
             self.preferences = preferences or Preferences()
+            self.license_guard = None
+            self._license_exit_requested = False
             self.map_thread = None
             self.map_worker = None
             self._close_after_map = False
-            self.setWindowTitle('Fast Sector Viewshed 3.4.0 | دیدپذیری قطاعی آفلاین')
+            self.setWindowTitle('Fast Sector Viewshed 3.6.0 | دیدپذیری قطاعی آفلاین')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -1228,6 +1239,8 @@ try:
             personal = QtWidgets.QPushButton('شخصی‌سازی رابط 🔒')
             personal.clicked.connect(self.open_personalization)
             outer.addWidget(personal, 0, QtCore.Qt.AlignLeft)
+            self.license_label = QtWidgets.QLabel('')
+            outer.addWidget(self.license_label)
             split = QtWidgets.QSplitter()
             outer.addWidget(split, 1)
             scroll = SmoothScrollArea()
@@ -1239,6 +1252,7 @@ try:
             form = QtWidgets.QVBoxLayout(form_widget)
             scroll.setWidget(form_widget)
             form_panel = QtWidgets.QWidget()
+            form_panel.setObjectName('formPanel')
             panel_layout = QtWidgets.QVBoxLayout(form_panel)
             panel_layout.setContentsMargins(0, 0, 0, 0)
             navigation = QtWidgets.QHBoxLayout()
@@ -1441,6 +1455,10 @@ try:
             self.map_source_label = QtWidgets.QLabel('نقشهٔ پیش‌فرض شما: area و point — فقط پس‌زمینهٔ پیش‌نمایش')
             self.map_source_label.setWordWrap(True)
             map_layout.addWidget(self.map_source_label)
+            self.country_labels_toggle = QtWidgets.QCheckBox('نمایش نام کشورها و عوارض نقشه')
+            self.country_labels_toggle.setChecked(True)
+            self.country_labels_toggle.toggled.connect(self.map_view.set_labels_visible)
+            map_layout.addWidget(self.country_labels_toggle)
             map_layout.addWidget(self.map_view, 1)
             attribution = QtWidgets.QLabel('نقشهٔ ارسالی کاربر: area و point • WGS 84 • آفلاین')
             attribution.setObjectName('mapAttribution')
@@ -1485,13 +1503,14 @@ try:
             self.status.setWordWrap(True)
             outer.addWidget(self.status)
             self.setCentralWidget(root)
-            self.setStyleSheet('\n            QWidget {font-family: "Segoe UI", "Tahoma"; font-size: 12px; color:#17364b;}\n            QMainWindow {background:#eef3f7;}\n            QLabel#title {font-size:25px; font-weight:700; padding:6px 0;}\n            QGroupBox {font-weight:600; border:1px solid #cedae4; border-radius:8px; margin-top:14px; padding:15px 8px 8px; background:white;}\n            QGroupBox::title {subcontrol-origin:margin; padding:0 7px;}\n            QGroupBox[priority="true"] {border-width:2px; font-weight:800; font-size:14px; padding-top:19px; margin-top:19px;}\n            QGroupBox#inputSection {border-color:#287aa6; background:#f0f7fc;}\n            QGroupBox#dimensionSection {border-color:#198f87; background:#eefaf7;}\n            QGroupBox#outputSection {border-color:#7462aa; background:#f5f2fc;}\n            QGroupBox#inputSection::title {color:#175e87; background:#e0edf8; border-radius:4px;}\n            QGroupBox#dimensionSection::title {color:#0e776e; background:#d9f1eb; border-radius:4px;}\n            QGroupBox#outputSection::title {color:#5c468d; background:#e9e2f6; border-radius:4px;}\n            QScrollBar:vertical {background:#e0eaf0; width:15px; border-radius:7px; margin:0;}\n            QScrollBar::handle:vertical {background:#719cae; min-height:38px; border-radius:7px;}\n            QScrollBar::handle:vertical:hover {background:#33768e;}\n            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {height:0;}\n            QLabel#mapAttribution {font-size:10px; color:#617c8d; padding:4px;}\n\n            QLineEdit,QComboBox,QDoubleSpinBox,QSpinBox {padding:7px; border:1px solid #bbcbd7; border-radius:4px; background:white;}\n            QPushButton {padding:9px 12px; border:1px solid #b8cbd9; border-radius:5px; background:#edf4f8;}\n            QPushButton#run {background:#146e87; color:white; font-weight:700;}\n            QPushButton:disabled {color:#8997a2; background:#e6ebee;}\n            QProgressBar {border:1px solid #bbcbd7; border-radius:4px; text-align:center; height:17px;}\n            QProgressBar::chunk {background:#26a782;}\n            QPlainTextEdit {background:#142b3b; color:#e7eef5; font-family:Consolas;}\n        ')
+            self.setStyleSheet(STYLE)
 
         def apply_personalization(self):
             ui = self.preferences.ui
             self.heading.setText(ui['title'])
-            self.setStyleSheet(self.base_style + f"\nQWidget {{font-size:{ui['font_size']}px;}}\nQPushButton#run {{background:{ui['accent']};color:white;}}")
+            self.setStyleSheet(self.base_style + f"\nQWidget {{font-size:{ui['font_size']}px;}}\nQPushButton#run {{background:{ui['accent']};color:#041824;}}")
             self.map_view.apply_map_style(ui)
+            self.image.setStyleSheet('background:#0b1c2c;border:1px solid #375d76;border-radius:8px;')
 
         def initialize_administrator(self):
             if self.preferences.configured:
@@ -1799,6 +1818,10 @@ try:
             if self.thread is not None:
                 return
             try:
+                if licensing.LICENSING_REQUIRED:
+                    if self.license_guard is None:
+                        raise licensing.LicenseError('ابتدا لایسنس این دستگاه را فعال کنید.')
+                    self.license_guard.check()
                 config = self.settings()
             except Exception as exc:
                 self.show_error(str(exc))
@@ -1819,7 +1842,7 @@ try:
             self.map_view.clear_results()
             self.map_view.fit_observers(config.radius_m)
             self.view_selector.setCurrentIndex(0)
-            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.4.0 ──')
+            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.6.0 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)
@@ -1868,6 +1891,8 @@ try:
             self.form_widget.setEnabled(True)
             self.read_fields.setEnabled(True)
             self.cancel_button.setEnabled(False)
+            if self._license_exit_requested:
+                QtCore.QTimer.singleShot(0, self.close)
 
         @QtCore.Slot(int, object, object)
         def receive_preview(self, fid, classes, metadata):
@@ -1953,12 +1978,29 @@ try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('FastViewshed.Desktop')
             app._desktop_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, 'FastViewshed.Desktop.Running')
+        guard = licensing.LicenseGuard() if licensing.LICENSING_REQUIRED else None
+        license_payload = None
+        if guard is not None:
+            try:
+                license_payload = guard.check()
+            except licensing.LicenseError as exc:
+                dialog = ActivationDialog(guard, str(exc))
+                report_path = os.environ.get('FAST_VIEWSHED_SMOKE_REPORT')
+                if report_path:
+                    Path(report_path).write_text(json.dumps(dict(status='license_required', gui_visible=False, activation_required=True)), encoding='utf-8')
+                    QtCore.QTimer.singleShot(150, dialog.reject)
+                if dialog.exec() != QtWidgets.QDialog.Accepted:
+                    return 2
+                license_payload = guard.check()
         preferences = Preferences()
         splash = create_splash(preferences, application_asset('aircraft.png'))
         splash.show()
         app.processEvents()
         splash_was_shown = splash.isVisible()
         window = FastWindow(preferences)
+        if guard is not None:
+            enforce_runtime_license(window, guard)
+            window.license_label.setText('لایسنس فعال: ' + license_summary(license_payload))
         window._fast_app_reference = app
         app._startup_splash = splash
         def reveal_window():
@@ -1971,7 +2013,7 @@ try:
         if report_path:
 
             def report_ready():
-                report = dict(status='passed', executable=sys.executable, version='3.5.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown)
+                report = dict(status='passed', executable=sys.executable, version='3.6.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown, country_labels=len(window.map_view.country_labels), visible_country_labels=len(getattr(window.map_view, 'visible_country_labels', [])), professional_theme=True, license_required=licensing.LICENSING_REQUIRED, license_active=guard is not None)
                 Path(report_path).write_text(json.dumps(report, indent=2), encoding='utf-8')
                 window.close()
             QtCore.QTimer.singleShot(1200, report_ready)

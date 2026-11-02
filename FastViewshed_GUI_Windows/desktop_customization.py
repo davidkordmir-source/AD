@@ -15,10 +15,10 @@ import uuid
 import numpy as np
 from osgeo import gdal, ogr, osr
 from PySide6 import QtCore, QtGui, QtWidgets
+from professional_ui import MAP_DEFAULTS
 
 DEFAULTS = dict(title='دیدپذیری قطاعی — ورودی و خروجی Shapefile', font_size=12,
-                accent='#146e87', map_line='#7c97a6', map_fill='#fafcfd',
-                map_background='#eaf2f6', logo='')
+                **MAP_DEFAULTS, logo='')
 REQUIRE_EMBEDDED_LOGO = False  # Enabled in locally built private distributions.
 
 
@@ -131,6 +131,10 @@ class Preferences:
     @property
     def ui(self):
         ui = {**DEFAULTS, **self.data.get('ui', {})}
+        for key, previous in dict(accent='#146e87', map_line='#7c97a6',
+                                  map_fill='#fafcfd', map_background='#eaf2f6').items():
+            if ui.get(key) == previous:
+                ui[key] = DEFAULTS[key]
         if self.logo_locked:
             ui['logo'] = ''
             return ui
@@ -215,6 +219,7 @@ def load_map_file(filename, layer_name=None, source_epsg=None):
     to_geographic = osr.CoordinateTransformation(source, geographic)
     transform = osr.CoordinateTransformation(geographic, traditional(target))
     paths, count, vertices = [], 0, 0
+    labels = []
     bounds = None
 
     def add_geometry(geom, label):
@@ -260,7 +265,7 @@ def load_map_file(filename, layer_name=None, source_epsg=None):
         for i in range(geometry.GetGeometryCount()):
             clamp_latitudes(geometry.GetGeometryRef(i))
 
-    name_field = next((name for name in ('NAME', 'name', 'NAME_LONG') if layer.GetLayerDefn().GetFieldIndex(name) >= 0), None)
+    name_field = next((name for name in ('NAME_FA', 'نام', 'NAME', 'name', 'NAME_LONG', 'ADMIN', 'LABEL') if layer.GetLayerDefn().GetFieldIndex(name) >= 0), None)
     for feature in layer:
         geometry = feature.GetGeometryRef()
         if geometry is None or geometry.IsEmpty():
@@ -273,13 +278,25 @@ def load_map_file(filename, layer_name=None, source_epsg=None):
             raise ValueError(f'تبدیل مختصات عارضهٔ {feature.GetFID()} ممکن نشد.')
         label = str(feature.GetField(name_field) or '') if name_field else ''
         add_geometry(geometry, label or f'{layer.GetName()} | FID={feature.GetFID()}')
+        if label.strip():
+            anchor_geom = geometry
+            if ogr.GT_Flatten(geometry.GetGeometryType()) == ogr.wkbMultiPolygon:
+                anchor_geom = max((geometry.GetGeometryRef(i) for i in range(geometry.GetGeometryCount())),
+                                  key=lambda g: abs(g.GetArea()))
+            kind = ogr.GT_Flatten(anchor_geom.GetGeometryType())
+            anchor = anchor_geom if kind == ogr.wkbPoint else anchor_geom.PointOnSurface() if kind == ogr.wkbPolygon else anchor_geom.Centroid()
+            if anchor is not None and not anchor.IsEmpty():
+                x, y, *_ = anchor.GetPoint()
+                if math.isfinite(x) and math.isfinite(y):
+                    labels.append(dict(text=label.strip(), position=(x, -y),
+                                       priority=abs(anchor_geom.GetArea()) if kind == ogr.wkbPolygon else 0))
         count += 1
         if count > 250000:
             raise ValueError('نقشه بیش از ۲۵۰ هزار عارضه دارد؛ لایهٔ کوچک‌تری انتخاب کنید.')
     if not paths:
         raise ValueError('نقشه هیچ هندسهٔ قابل‌نمایشی ندارد.')
     return dict(kind='vector', paths=paths, bounds=bounds, count=count,
-                filename=str(filename), layer=layer.GetName(), source_epsg=source_epsg)
+                filename=str(filename), layer=layer.GetName(), source_epsg=source_epsg, labels=labels)
 
 
 def load_raster_map(filename, source_epsg=None):

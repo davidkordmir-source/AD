@@ -75,12 +75,20 @@ try {
     $source = [IO.File]::ReadAllText($desktopModule)
     if (-not $source.Contains('REQUIRE_EMBEDDED_LOGO = False')) { throw 'The logo protection module is not the expected version.' }
     [IO.File]::WriteAllText($desktopModule, $source.Replace('REQUIRE_EMBEDDED_LOGO = False', 'REQUIRE_EMBEDDED_LOGO = True'), [Text.Encoding]::UTF8)
+    $licenseModule = Join-Path $stage 'licensing.py'
+    $source = [IO.File]::ReadAllText($licenseModule)
+    if (-not $source.Contains('LICENSING_REQUIRED = False')) { throw 'The licensing module is not the expected version.' }
+    [IO.File]::WriteAllText($licenseModule, $source.Replace('LICENSING_REQUIRED = False', 'LICENSING_REQUIRED = True'), [Text.Encoding]::UTF8)
+    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    & $shell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $kit 'License_Owner\Owner_Licensing.ps1') -Initialize -DataDirectory (Join-Path $kit 'License_OwnerData')
+    if ($LASTEXITCODE -ne 0) { throw 'Owner licensing key initialization failed.' }
     $csc = Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (-not (Test-Path -LiteralPath $csc)) { throw 'The Windows .NET Framework compiler is unavailable.' }
     $launcher = Join-Path $stage 'FastViewshed.exe'
     & $csc /nologo /target:winexe /platform:x64 "/win32icon:$stage\assets\aircraft.ico" "/out:$launcher" /reference:System.Windows.Forms.dll (Join-Path $kit 'FastViewshedLauncher.cs')
     if ($LASTEXITCODE -ne 0) { throw 'Compiling the application launcher failed.' }
     & (Join-Path $kit 'Embed_Logo.ps1') -Executable $launcher -Logo (Join-Path $work 'logo.png')
+    & (Join-Path $kit 'Embed_Logo.ps1') -Executable $launcher -Logo (Join-Path $kit 'License_OwnerData\public_key.json') -ResourceId 102
     $compiler = Join-Path $kit 'Toolchain\ISCC.exe'
     $deliverable = Join-Path $work 'Deliverable'
     New-Item -ItemType Directory -Path $deliverable | Out-Null
@@ -109,7 +117,7 @@ try {
     $inventory = @(Get-ChildItem -LiteralPath $deliverable -File -Recurse | ForEach-Object {
         @{path=$_.FullName.Substring($deliverable.Length + 1);bytes=$_.Length}
     })
-    @{version='3.5.0';files=$inventory;embedded_logo=$true} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $deliverable 'FILES.json') -Encoding UTF8
+    @{version='3.6.0';files=$inventory;embedded_logo=$true;device_license_required=$true} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $deliverable 'FILES.json') -Encoding UTF8
     $checks = @()
     $checks += ((Get-FileHash -LiteralPath $built -Algorithm SHA256).Hash.ToLowerInvariant() + '  FastViewshed_With_Logo_Setup.exe')
     $checks += ((Get-FileHash -LiteralPath (Join-Path $portable 'FastViewshed.exe') -Algorithm SHA256).Hash.ToLowerInvariant() + '  Portable/FastViewshed.exe')
@@ -125,6 +133,7 @@ try {
     }
     Write-Host ('Ready: ' + (Get-FVPhysicalPath -Path $destination -Mapping $pathMapping)) -ForegroundColor Green
     Write-Host 'Output includes the installer AND the full Portable folder, with all runtime files. No separate logo file is included.'
+    Write-Host 'Output REQUIRES a device license. Keep License_Owner and License_OwnerData private; only send Output and an issued .fvlicense to customers.'
     if ($previous) { Write-Host ('Previous output preserved: ' + (Get-FVPhysicalPath -Path $previous -Mapping $pathMapping)) }
     exit 0
 } catch {

@@ -22,7 +22,8 @@ class BundleTests(unittest.TestCase):
             points, dem = fixture.inputs(ridge=True)
             with tempfile.TemporaryDirectory() as directory:
                 script = Path(directory)/"FastViewshed_GUI.py"
-                shutil.copyfile(ROOT/"FastViewshed_GUI.py", script)
+                for source in ROOT.glob('*.py'):
+                    shutil.copyfile(source, Path(directory)/source.name)
                 code = '''
 import importlib.abc, json, runpy, sys
 class NoProject(importlib.abc.MetaPathFinder):

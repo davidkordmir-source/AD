@@ -52,7 +52,10 @@ try {
     }
     $backupReady = $true
     foreach ($entry in $fix.files) {
-        New-Item -ItemType Directory -Path (Split-Path (Join-Path $kit $entry.path) -Parent) -Force | Out-Null
+        $parent = Split-Path (Join-Path $kit $entry.path) -Parent
+        if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
         Copy-Item -LiteralPath (Join-Path (Join-Path $fixRoot 'Files') $entry.path) -Destination (Join-Path $kit $entry.path) -Force
         $matches = @($manifest.files | Where-Object { $_.path -ceq $entry.path })
         if ($matches.Count -eq 1) { $matches[0].sha256 = $entry.sha256 } else { $manifest.files = @($manifest.files) + $entry }
@@ -67,6 +70,7 @@ try {
     exit 0
 } catch {
     $failure = $_.Exception.Message
+    Write-Warning $_.ScriptStackTrace
     if ($backupReady) {
         try {
             foreach ($entry in $fix.files) {

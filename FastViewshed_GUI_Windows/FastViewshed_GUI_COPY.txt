@@ -855,7 +855,6 @@ try:
                 if points:
                     labels = load_map_file(points)
                     data['paths'].extend(labels['paths'])
-                    data['labels'].extend(labels.get('labels', []))
                     data['count'] += labels['count']
                     data['bounds'] = data['bounds'].united(labels['bounds'])
                 self.replace_background(data)

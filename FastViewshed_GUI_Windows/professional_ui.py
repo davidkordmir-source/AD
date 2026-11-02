@@ -104,10 +104,16 @@ class ProfessionalMapMixin:
         painter.setFont(font)
         metrics = QtGui.QFontMetricsF(font)
         viewport = self.viewport().rect().adjusted(3, 3, -3, -3)
-        occupied = [QtCore.QRectF(self.mapFromScene(item.pos()).x()-14,
-                                self.mapFromScene(item.pos()).y()-14, 28, 28)
-                    for item in self.point_items]
         buckets = {}
+        def cells_for(box):
+            return [(x, y) for x in range(int(box.left()//80), int(box.right()//80)+1)
+                    for y in range(int(box.top()//30), int(box.bottom()//30)+1)]
+        for item in self.point_items:
+            point = self.mapFromScene(item.pos())
+            if viewport.contains(point):
+                box = QtCore.QRectF(point.x()-14, point.y()-14, 28, 28)
+                for cell in cells_for(box):
+                    buckets.setdefault(cell, []).append(box)
         for candidate in getattr(self, 'country_labels', []):
             point = self.mapFromScene(QtCore.QPointF(*candidate['position']))
             if not viewport.contains(point):
@@ -116,9 +122,8 @@ class ProfessionalMapMixin:
             box = QtCore.QRectF(point.x()-metrics.horizontalAdvance(text)/2-5,
                                 point.y()-metrics.height()/2-3,
                                 metrics.horizontalAdvance(text)+10, metrics.height()+6)
-            cells = [(x, y) for x in range(int(box.left()//80), int(box.right()//80)+1)
-                     for y in range(int(box.top()//30), int(box.bottom()//30)+1)]
-            if not QtCore.QRectF(viewport).contains(box) or any(box.intersects(r) for r in occupied):
+            cells = cells_for(box)
+            if not QtCore.QRectF(viewport).contains(box):
                 continue
             if any(box.intersects(r) for cell in cells for r in buckets.get(cell, [])):
                 continue

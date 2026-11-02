@@ -1,8 +1,6 @@
 name: Build and verify complete offline Windows GUI
 on:
-  push:
-    branches: [fast-viewshed-gui]
-    paths: ['FastViewshed_GUI_Windows/**', '.github/workflows/build-offline-windows.yml']
+  # Legacy base runtime release; keep its pinned archive stable during private-kit updates.
   workflow_dispatch:
 permissions:
   contents: write

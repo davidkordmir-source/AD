@@ -86,7 +86,7 @@ try {
     $form.ForeColor = [Drawing.Color]::White
     $form.Font = New-Object Drawing.Font('Segoe UI', 10)
     $layout = New-Object Windows.Forms.TableLayoutPanel
-    $layout.Dock = 'Fill'; $layout.Padding = 20; $layout.ColumnCount = 2
+    $layout.Dock = 'Fill'; $layout.Padding = New-Object Windows.Forms.Padding(20); $layout.ColumnCount = 2
     $layout.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Absolute', 165))) | Out-Null
     $layout.ColumnStyles.Add((New-Object Windows.Forms.ColumnStyle('Percent', 100))) | Out-Null
     $form.Controls.Add($layout)
@@ -112,6 +112,10 @@ try {
     $layout.Controls.Add($notice,0,5); $layout.SetColumnSpan($notice,2)
     $issue = New-Object Windows.Forms.Button; $issue.Text = 'Create license...'; $issue.AutoSize = $true
     $layout.Controls.Add($issue,1,6)
+    foreach ($field in @($requestBox,$nameBox,$daysBox)) {
+        $field.BackColor = [Drawing.Color]::FromArgb(19,45,65)
+        $field.ForeColor = [Drawing.Color]::White
+    }
     foreach ($button in @($select,$issue)) { $button.BackColor = [Drawing.Color]::FromArgb(20,117,149); $button.ForeColor = [Drawing.Color]::White; $button.FlatStyle = 'Flat' }
     $select.Add_Click({
         $picker = New-Object Windows.Forms.OpenFileDialog

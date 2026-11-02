@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "root_tests": 29,
+  "engine_tests": 72,
+  "map_presentation_tests_after_label_refinement": 3,
+  "analysis_routines_unchanged": [
+    "run_fast",
+    "local_result",
+    "grid_plan",
+    "load_observers",
+    "raster_dataset",
+    "sector_polygon",
+    "visible_radius"
+  ],
+  "source_revision": "4527ecd",
+  "platform": "Linux offscreen Qt; Windows end-to-end report is separate"
+}

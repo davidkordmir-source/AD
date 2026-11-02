@@ -1,36 +1,38 @@
-# Fast Viewshed 3.5.1 — بستهٔ کامل با لوگوی داخلی
+# Fast Viewshed 3.6 — نام کشورها، ظاهر تازه و لایسنس دستگاه
 
-[**دانلود کد کامل برنامه در یک ZIP — حدود ۷ مگابایت**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.5.1.zip)
+[**به‌روزرسانی کوچک از بستهٔ کامل ۳٫۵ به ۳٫۶**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.0-private-kit/FastViewshed_Licensed_Update_v3.6.0.zip)
 
-شامل کد Python و C#، منابع و نقشه‌ها، آزمون‌ها و ابزارهای ساخت نصب‌کننده و لوگو است.
-راهنمای اجرای سورس و ساخت در [SOURCE_README_FA.md](SOURCE_README_FA.md) قرار دارد؛
-وابستگی‌های باینری Python/GDAL/Qt همراه بستهٔ سورس نیستند.
+محتویات ZIP را کنار `Build_Custom_Setup.bat` و `Payload` قبلی استخراج کنید،
+`Apply_3_6_Update.bat` و سپس `Build_Custom_Setup.bat` را اجرا کنید. لوگوی قبلی
+حفظ می‌شود و دریافت دوبارهٔ کتابخانه‌های بزرگ لازم نیست. نسخهٔ جدید نام کشورها
+را روی نقشه نمایش می‌دهد؛ پوسته سرمه‌ای/آبی/فیروزه‌ای و نقاط ورودی قرمز و واضح‌اند.
 
-[**دانلود ابزار ساخت بستهٔ کامل ۳٫۵٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/FastViewshed_Complete_Private_Kit_v3.5.1.zip)
+[**بستهٔ کامل ابزار ساخت ۳٫۶ برای دریافت نخستین**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.0-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.0.zip)
 
-اگر بستهٔ کامل **۳٫۵٫۰** را دارید و هنگام ساخت Output خطای مسیر طولانی می‌بینید،
-فقط [**اصلاحیهٔ کوچک ۳٫۵٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/FastViewshed_Long_Path_Fix_v3.5.1.zip)
-را بگیرید. محتویات آن را کنار `Build_Custom_Setup.bat` و پوشهٔ `Payload` قبلی بریزید،
-`Apply_Path_Fix.bat` را اجرا کنید و سپس `Build_Custom_Setup.bat` را دوباره اجرا کنید.
-لوگو و Output قبلی حفظ می‌شوند و دانلود دوبارهٔ بستهٔ بزرگ لازم نیست.
-ابزار از مسیر کوتاه موقت استفاده می‌کند؛ نیازی به Administrator یا تغییر رجیستری ندارید.
+**خروجی جدید بدون لایسنس مخصوص دستگاه اجرا نمی‌شود.** پس از ساخت، مشتری درخواست
+`.fvrequest` را از صفحهٔ فعال‌سازی ذخیره می‌کند و برای شما می‌فرستد. با
+`License_Owner/Issue_License.bat` برای همان دستگاه تعداد روز دلخواه یا Unlimited
+انتخاب کنید و فقط فایل `.fvlicense` را به او بدهید. مدت از لحظهٔ صدور است؛ ورود
+دوبارهٔ فایل، زمان را تمدید نمی‌کند. بعد از انقضا برنامه تا ورود لایسنس جدید مسدود است.
 
-ZIP را استخراج کنید، لوگوی PNG خود را داخل `Logo_Input` بگذارید و
-`Build_Custom_Setup.bat` را اجرا کنید. ساخت محلی و آفلاین است و لوگو آپلود نمی‌شود.
-خروجی شامل **نصب‌کنندهٔ کامل** و پوشهٔ **`Portable` با تمام فایل‌های برنامه و
-وابستگی‌های استخراج‌شدهٔ Python، GDAL و Qt** است. می‌توانید کل `Output` را ZIP
-و برای سیستم دیگر ارسال کنید. لوگو در فایل اجرایی قرار دارد، فایل تصویر جداگانه
-در خروجی ندارد و از بخش شخصی‌سازی قابل تعویض نیست.
+فقط **Output** و فایل لایسنس را برای مشتری بفرستید. ابزار صدور و **License_OwnerData**
+خصوصی هستند؛ کلید داخل آن به حساب ویندوز صاحب برنامه با DPAPI قفل شده است.
+از پوشه و پروفایل ویندوز پشتیبان بگیرید. جزئیات، محدودیت حفاظت آفلاین و روش تمدید
+در [راهنمای فارسی لایسنس](private_logo_kit/LICENSE_GUIDE_FA.md) است. نسخه‌های قبلی
+نصب‌شده و سورس توسعه خودکار قفل نمی‌شوند؛ خروجی جدید را به دریافت‌کننده بدهید.
 
-سقف شعاع **۵۰۰۰ کیلومتر** است. عدد `5` با واحد کیلومتر یعنی ۵ کیلومتر؛ صفرهای
-اعشاری اضافه نمایش داده نمی‌شوند و اعشار واقعی مثل `1.5` حفظ می‌شود.
-راه‌اندازی عادی از بررسی سریع کتابخانه‌ها استفاده می‌کند؛ بررسی کامل محاسبات
-با `Check_Offline.bat` جداگانه قابل اجراست. زمان آماده‌سازی اولیه به دیسک و
-سیستم مقصد وابسته است؛ اجرای دوباره از وابستگی‌های آماده‌شده استفاده می‌کند.
+لوگو در فایل اجرایی قرار می‌گیرد و فایل تصویر جداگانه در Output نیست. Output
+نصب‌کننده و Portable کامل همراه Python/GDAL/Qt را دارد. سقف شعاع ۵۰۰۰ کیلومتر،
+نمایش عدد بدون صفرهای اعشاری اضافی و راه‌اندازی سریع وابستگی‌های آماده حفظ شده‌اند.
 
-[گزارش آزمایش نسخهٔ تازه و اصلاحیهٔ بستهٔ قبلی روی ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/PRIVATE_LONG_PATH_VALIDATION_v3.5.1.json)
+[**دانلود کد کامل نسخهٔ ۳٫۶ در یک ZIP**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.6.0.zip)
+· [راهنمای توسعه](SOURCE_README_FA.md)
+· [گزارش آزمون ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.6.0-private-kit/LICENSED_KIT_VALIDATION_v3.6.0.json)
 
 ## نصب‌کنندهٔ پایهٔ قبلی، نسخهٔ ۳٫۴
+
+این بخش آرشیو نسخه‌های قبلیِ بدون لایسنس دستگاه است؛ برای توزیع نسخهٔ جدید،
+از ابزار ۳٫۶ و راهنمای لایسنس بالای صفحه استفاده کنید.
 
 [**دانلود بستهٔ نصب ویندوز — داخل این ZIP فایل Setup.exe است**](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/00_FastViewshed_Windows_Setup_v3.4.0.zip)
 

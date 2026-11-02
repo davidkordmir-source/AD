@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "source_revision": "74f0d6476e64c7a7f76843dd18ba0dadcce69156",
+  "archive": "FastViewshed_Complete_Source_v3.5.1.zip",
+  "bytes": 7344817,
+  "sha256": "cbc8ca59cf57dc6cd617727f6c0a4ce64b5d8a611508d482032c260c3ebad357",
+  "tracked_files": 128,
+  "python_files_parsed": 36,
+  "all_files_match_git_blobs": true,
+  "application_unchanged_from": "e26321193ebe1bba60587063a7ade149dfc9c07a",
+  "private_logo_included": false,
+  "native_runtime_included": false
+}

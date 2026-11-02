@@ -1,5 +1,11 @@
 # Fast Viewshed 3.5.1 — بستهٔ کامل با لوگوی داخلی
 
+[**دانلود کد کامل برنامه در یک ZIP — حدود ۷ مگابایت**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.5.1.zip)
+
+شامل کد Python و C#، منابع و نقشه‌ها، آزمون‌ها و ابزارهای ساخت نصب‌کننده و لوگو است.
+راهنمای اجرای سورس و ساخت در [SOURCE_README_FA.md](SOURCE_README_FA.md) قرار دارد؛
+وابستگی‌های باینری Python/GDAL/Qt همراه بستهٔ سورس نیستند.
+
 [**دانلود ابزار ساخت بستهٔ کامل ۳٫۵٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/FastViewshed_Complete_Private_Kit_v3.5.1.zip)
 
 اگر بستهٔ کامل **۳٫۵٫۰** را دارید و هنگام ساخت Output خطای مسیر طولانی می‌بینید،

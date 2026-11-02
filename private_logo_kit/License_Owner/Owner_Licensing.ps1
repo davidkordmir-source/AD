@@ -1,6 +1,6 @@
 param([switch]$Initialize, [string]$RequestFile, [string]$Customer,
       [ValidateRange(1,36500)][int]$Days=10, [switch]$Unlimited,
-      [string]$OutputFile, [string]$DataDirectory)
+      [string]$OutputFile, [string]$DataDirectory, [string]$SmokeReport)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
 if (-not $DataDirectory) { $DataDirectory = Join-Path (Split-Path $PSScriptRoot -Parent) 'License_OwnerData' }
@@ -128,6 +128,21 @@ try {
         } catch { [void][Windows.Forms.MessageBox]::Show($_.Exception.Message, 'License not created') }
         finally { $picker.Dispose() }
     })
-    [void]$form.ShowDialog()
+    $timer = $null
+    if ($SmokeReport) {
+        $timer = New-Object Windows.Forms.Timer
+        $timer.Interval = 600
+        $timer.Add_Tick({
+            $timer.Stop()
+            $visible = $form.Visible
+            $forever.Checked = $true
+            $report = @{status='passed';form_visible=$visible;default_days=[int]$daysBox.Value;unlimited_disables_days=(-not $daysBox.Enabled)}
+            [IO.File]::WriteAllText($SmokeReport, ($report | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+            $form.Close()
+        })
+        $form.Add_Shown({ $timer.Start() })
+    }
+    try { [void]$form.ShowDialog() }
+    finally { if ($timer) { $timer.Dispose() }; $form.Dispose() }
     exit 0
 } catch { Write-Host $_.Exception.Message -ForegroundColor Red; exit 1 }

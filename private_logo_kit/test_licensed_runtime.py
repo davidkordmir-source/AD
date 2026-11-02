@@ -95,6 +95,13 @@ def main():
     unlimited = issue('unlimited.fvlicense', '-Unlimited')
     assert guard.activate(unlimited)['expires_at'] is None
     assert guard.check()['expires_at'] is None
+    owner_gui_path = args.output/'OWNER_GUI_SMOKE.json'
+    owner_gui = subprocess.run([powershell, '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', str(args.owner),
+                                '-DataDirectory', str(args.owner_data), '-SmokeReport', str(owner_gui_path)],
+                               capture_output=True, text=True, timeout=60)
+    assert owner_gui.returncode == 0, owner_gui.stdout + owner_gui.stderr
+    issuer_ui = json.loads(owner_gui_path.read_text())
+    assert issuer_ui['form_visible'] and issuer_ui['default_days'] == 10 and issuer_ui['unlimited_disables_days']
     # Recover the DPAPI-protected high-water record from its registry mirror.
     guard.state_path.unlink()
     guard.check()
@@ -106,7 +113,7 @@ def main():
                   unlimited_license=True, missing_license_blocks_gui=True, wrong_device_rejected=True,
                   wrong_owner_request_rejected=True, modified_duration_rejected=True,
                   expiry_and_reimport_rejected=True, normal_clock_rollback_rejected=True,
-                  dpapi_registry_mirror_recovered=True, renewed_gui=active)
+                  dpapi_registry_mirror_recovered=True, owner_issuer_gui=issuer_ui, renewed_gui=active)
     (args.output/'LICENSE_VALIDATION_v3.6.0.json').write_text(json.dumps(report, indent=2))
     print('PASS: real Windows issuer, DPAPI, signed duration, binding, expiry, renewal and licensed GUI.')
 

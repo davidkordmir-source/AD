@@ -31,8 +31,8 @@ def main():
         assert result.returncode == expected, (name, result.returncode)
         return json.loads(report.read_text())
 
-    # Run_Fast_Viewshed.bat normalizes unsuccessful Python exits to code 1.
-    blocked = gui('GUI_WITHOUT_LICENSE.json', 1)
+    # Cancelling activation is a clean exit, without the launcher's error box.
+    blocked = gui('GUI_WITHOUT_LICENSE.json', 0)
     assert blocked['status'] == 'license_required' and not blocked['gui_visible']
     request = args.output/'synthetic.fvrequest'
     request.write_text(json.dumps(guard.request()))

@@ -1989,7 +1989,7 @@ try:
                     Path(report_path).write_text(json.dumps(dict(status='license_required', gui_visible=False, activation_required=True)), encoding='utf-8')
                     QtCore.QTimer.singleShot(150, dialog.reject)
                 if dialog.exec() != QtWidgets.QDialog.Accepted:
-                    return 2
+                    return 0
                 license_payload = guard.check()
         preferences = Preferences()
         splash = create_splash(preferences, application_asset('aircraft.png'))

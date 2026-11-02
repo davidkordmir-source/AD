@@ -75,7 +75,7 @@ jobs:
           New-Item -ItemType Directory -Path private-kit-output -Force | Out-Null
           @{status=$env:PRIVATE_KIT_JOB_STATUS;version='3.6.0';revision=$env:GITHUB_SHA;run_id=$env:GITHUB_RUN_ID} | ConvertTo-Json | Set-Content private-kit-output/LICENSED_KIT_STATUS_v3.6.0.json -Encoding UTF8
           $files = @('private-kit-output/LICENSED_KIT_STATUS_v3.6.0.json')
-          foreach ($item in (Get-ChildItem private-kit-output -File -Recurse | Where-Object { $_.Extension -in @('.log','.txt') -and $_.Name -notlike '*.sha256' })) {
+          foreach ($item in (Get-ChildItem private-kit-output -File -Recurse | Where-Object { $_.Extension -in @('.log','.txt','.json') -and $_.Name -notlike '*STATUS*' })) {
             $prefix = if ($item.Directory.Name -in @('Fresh','Upgrade')) { $item.Directory.Name + '_' } else { '' }
             $diagnostic = Join-Path 'private-kit-output' ($prefix + $item.Name)
             if ($item.FullName -ne [IO.Path]::GetFullPath($diagnostic)) { Copy-Item -LiteralPath $item.FullName -Destination $diagnostic -Force }

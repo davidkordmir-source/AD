@@ -93,7 +93,7 @@ try {
     $markerHash = (Get-FileHash -LiteralPath $markerPath).Hash
     & (Join-Path $moved 'Install_Fast_Viewshed.bat') --quiet
     if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $markerPath).Hash -ne $markerHash) { throw 'Repeated startup did not reuse initialized dependencies.' }
-    & (Join-Path $moved 'runtime_offline\python.exe') (Join-Path $PSScriptRoot 'test_licensed_runtime.py') --app $moved --owner (Join-Path $kit 'License_Owner\Owner_Licensing.ps1') --owner-data (Join-Path $kit 'License_OwnerData') --output $Output
+    & (Join-Path $moved 'runtime_offline\python.exe') (Join-Path $PSScriptRoot 'test_licensed_runtime.py') --app $moved --owner (Join-Path $kit 'License_Owner\Owner_Licensing.ps1') --owner-data (Join-Path $kit 'License_OwnerData') --output $Output 2>&1 | Tee-Object -FilePath (Join-Path $Output 'LICENSE_RUNTIME.log')
     if ($LASTEXITCODE -ne 0) { throw 'Actual Windows licensing regression failed.' }
     $licensingReport = Get-Content -LiteralPath (Join-Path $Output 'LICENSE_VALIDATION_v3.6.0.json') -Raw | ConvertFrom-Json
     if (Get-ChildItem -LiteralPath $moved -Recurse -File | Where-Object { $_.Name -eq 'Private_Key.dpapi' -or $_.FullName -like '*License_OwnerData*' -or $_.Name -eq 'Owner_Licensing.ps1' }) { throw 'Owner secrets or issuer were copied to the recipient.' }

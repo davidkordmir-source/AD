@@ -31,7 +31,8 @@ def main():
         assert result.returncode == expected, (name, result.returncode)
         return json.loads(report.read_text())
 
-    blocked = gui('GUI_WITHOUT_LICENSE.json', 2)
+    # Run_Fast_Viewshed.bat normalizes unsuccessful Python exits to code 1.
+    blocked = gui('GUI_WITHOUT_LICENSE.json', 1)
     assert blocked['status'] == 'license_required' and not blocked['gui_visible']
     request = args.output/'synthetic.fvrequest'
     request.write_text(json.dumps(guard.request()))

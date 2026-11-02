@@ -1,0 +1,83 @@
+# راهنمای کد کامل Fast Viewshed — بستهٔ ۳٫۵٫۱
+
+این بسته کد کامل پروژه از شاخهٔ `fast-viewshed-gui` را همراه منابع، دادهٔ نمونه،
+آزمون‌ها و ابزارهای ساخت ویندوز دارد. نسخهٔ دقیق سورس و SHA256 تمام فایل‌ها در
+`SOURCE_MANIFEST.json` داخل ZIP ثبت شده است. فایل نصب و کتابخانه‌های باینری
+Python/GDAL/Qt جداگانه توزیع می‌شوند؛ برای کار با سورس باید محیط توسعه آماده شود.
+
+## فایل‌ها و پوشه‌های اصلی
+
+| مسیر | کاربرد |
+| --- | --- |
+| `FastViewshed_GUI_Windows/FastViewshed_GUI.py` | فایل اصلی نسخهٔ فعلی رابط و اجرای برنامه؛ ویرایش را از این فایل شروع کنید |
+| `FastViewshed_GUI_Windows/desktop_customization.py` | شخصی‌سازی، رمز، نقشه و خواندن لوگوی جاسازی‌شده |
+| `FastViewshed_GUI_Windows/fast_viewshed/` | ماژول‌های موتور محاسبات و رابط ماژولار |
+| `FastViewshed_GUI_Windows/sector_viewshed/` | توابع پایهٔ پردازش و ورودی‌ها |
+| `FastViewshed_GUI_Windows/assets/` | آیکون‌ها و نقشه‌های همراه برنامه با اطلاعات منبع و مجوز |
+| `FastViewshed_GUI_Windows/demo_fast/` | DEM و نقاط نمونه برای بررسی برنامه |
+| `FastViewshed_GUI_Windows/fast_tests/` و `tests/` | آزمون‌های برنامه، لوگو و نمایش عدد و شعاع |
+| `FastViewshed_GUI_Windows/installer/` | کد C# راه‌انداز و تنظیمات Inno Setup |
+| `FastViewshed_GUI_Windows/scripts/` | ساخت بستهٔ آفلاین، نصب‌کننده و بررسی برنامه |
+| `private_logo_kit/` | کد ساخت محلی بسته با لوگوی خصوصی و اصلاح مسیرهای طولانی ویندوز |
+| `.github/workflows/` | دستورهای ساخت و آزمایش خودکار ویندوز |
+| `validation/` | گزارش‌های ثبت‌شدهٔ آزمایش نسخه‌های منتشرشده |
+| `tools/package_source.py` | ساخت دوبارهٔ همین بستهٔ سورس از یک Commit مشخص در مخزن گیت |
+
+فایل اصلی `FastViewshed_GUI.py` دارای تغییرات نسخهٔ منتشرشده است. اجرای
+`run_fast_gui.py` رابط ماژولار را اجرا می‌کند؛ برای مشاهده و ویرایش نسخهٔ فعلی،
+دستور اجرای زیر را استفاده کنید. ابزار قدیمی `build_fast_standalone.py` فایل اصلی
+را بازتولید می‌کند؛ هنگام توسعهٔ نسخهٔ فعلی، آن را روی تغییرات فایل اصلی اجرا نکنید.
+
+## اجرای سورس در ویندوز ۱۰ یا ۱۱، نسخهٔ ۶۴ بیتی
+
+پس از استخراج ZIP و نصب Miniforge یا Conda، ترمینال آن را در پوشهٔ اصلی بسته باز کنید:
+
+```bat
+conda env create -f FastViewshed_GUI_Windows/environment-fast.yml
+conda activate fast-sector-viewshed
+cd FastViewshed_GUI_Windows
+python FastViewshed_GUI.py
+```
+
+فایل محیط، Python 3.12، GDAL 3.10.3، NumPy و PySide6/Qt را مشخص می‌کند.
+ساخت اولیهٔ محیط توسعه برای دریافت وابستگی‌ها اینترنت می‌خواهد. برنامه با فایل‌های
+محلی کار می‌کند و پس از آماده‌شدن محیط برای محاسبات به اینترنت نیاز ندارد.
+فایل‌های BAT مخصوص بستهٔ آمادهٔ آفلاین، به `runtime_win64.zip` نیاز دارند؛ برای اجرای
+مستقیم سورس، از دستور `python FastViewshed_GUI.py` بالا استفاده کنید.
+
+برای اجرای آزمون‌ها از پوشهٔ `FastViewshed_GUI_Windows` و همین محیط:
+
+```bat
+python -m unittest discover -s fast_tests -v
+```
+
+آزمون‌های ویژهٔ نسخهٔ فعلی را نیز از پوشهٔ اصلی بسته اجرا کنید:
+
+```bat
+python -m unittest discover -s tests -v
+```
+
+## ساخت فایل نصب و بستهٔ دارای لوگوی خصوصی
+
+ساخت وابستگی‌های بومی و نصب‌کننده باید روی ویندوز انجام شود. دستورهای کامل در
+`.github/workflows/build-offline-windows.yml` و
+`.github/workflows/private-logo-kit.yml` موجود است. ابزارهای مورد نیاز شامل
+Conda، conda-pack، Inno Setup 6 و کامپایلر C# چارچوب .NET ویندوز هستند.
+
+برای استفاده از وابستگی‌های آماده و ساخت محلی با لوگوی خودتان،
+[بستهٔ کامل ابزار ساخت ۳٫۵٫۱](https://github.com/davidkordmir-source/AD/releases/download/v3.5.1-private-kit/FastViewshed_Complete_Private_Kit_v3.5.1.zip)
+را بگیرید و طبق `private_logo_kit/README_FA.txt` عمل کنید. این بستهٔ سورس، کد همان
+ابزارها را دارد؛ فایل‌های باینری کامپایلر و runtime در بستهٔ ابزار ساخت قرار دارند.
+نیازی به آپلود لوگوی شخصی روی گیت‌هاب نیست.
+
+سقف شعاع نسخهٔ فعلی ۵۰۰۰ کیلومتر است و صفرهای اعشاری اضافی نمایش داده نمی‌شوند.
+برخی راهنماها و نام‌های فایل‌های ساخت قدیمی، شمارهٔ نسخهٔ قبلی را دارند؛ راهنمای
+حاضر، فایل اصلی برنامه و گزارش `validation/private-long-path-v3.5.1.json` مرجع
+نسخهٔ فعلی این بسته هستند.
+
+## بررسی بسته
+
+`SOURCE_MANIFEST.json` در ZIP فهرست فایل‌ها و SHA256 آن‌ها را دارد. فایل کناری
+`.zip.sha256` نیز SHA256 خود ZIP را ثبت می‌کند. پوشهٔ تاریخچهٔ `.git`، بسته‌های
+باینری قدیمی داخل `downloads` و فایل‌های محلیِ خارج از Commit وارد ZIP نمی‌شوند.
+کد برنامه برای تهیهٔ این بسته تغییر نکرده است.

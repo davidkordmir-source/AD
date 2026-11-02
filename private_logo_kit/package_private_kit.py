@@ -7,6 +7,7 @@ import tempfile
 import zipfile
 
 OFFLINE_SHA256 = '07640d806a43a961b7134a661854cbba85317896ff4b3a707ab1b3242e25a404'
+BASE_PRIVATE_SHA256 = 'fd484a19a70eead74dd5d9372cfdaa8860fe17cc87b5b9825950b5e79bb3d1aa'
 ARCHIVE_NAME = 'FastViewshed_Licensed_Private_Kit_v3.6.0.zip'
 PREFIX = 'FastViewshed_Private_Logo_Kit/'
 ROOT = Path(__file__).resolve().parent.parent
@@ -17,22 +18,24 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def package(offline_archive, compiler, output):
-    if digest(offline_archive) != OFFLINE_SHA256:
-        raise ValueError('Offline runtime ZIP SHA256 does not match the verified release.')
+def package(offline_archive, compiler, output, base_private_kit=None):
+    source_archive = base_private_kit or offline_archive
+    expected = BASE_PRIVATE_SHA256 if base_private_kit else OFFLINE_SHA256
+    if digest(source_archive) != expected:
+        raise ValueError('Base archive SHA256 does not match the verified release.')
     if not (compiler / 'ISCC.exe').is_file():
         raise ValueError('The complete Inno Setup compiler folder is required.')
     output.mkdir(parents=True, exist_ok=True)
     target = output / ARCHIVE_NAME
     with tempfile.TemporaryDirectory(prefix='fv-private-payload-') as temporary:
         unpacked = Path(temporary)
-        with zipfile.ZipFile(offline_archive) as archive:
+        with zipfile.ZipFile(source_archive) as archive:
             for item in archive.infolist():
                 path = (unpacked / item.filename).resolve()
                 if not path.is_relative_to(unpacked.resolve()):
                     raise ValueError('Invalid path in the pinned runtime ZIP.')
             archive.extractall(unpacked)
-        payload = unpacked / 'FastViewshed_Offline_Windows_x64'
+        payload = unpacked / 'FastViewshed_Private_Logo_Kit' / 'Payload' if base_private_kit else unpacked / 'FastViewshed_Offline_Windows_x64'
         if not (payload / 'runtime_win64.zip').is_file():
             raise ValueError('The complete offline runtime payload is missing.')
         app = ROOT / 'FastViewshed_GUI_Windows'
@@ -99,8 +102,10 @@ def package(offline_archive, compiler, output):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--offline-archive', type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--offline-archive', type=Path)
+    source.add_argument('--base-private-kit', type=Path)
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    package(args.offline_archive, args.compiler, args.output)
+    package(args.offline_archive, args.compiler, args.output, args.base_private_kit)

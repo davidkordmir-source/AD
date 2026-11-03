@@ -2,7 +2,7 @@ name: Build and test complete private logo kit 3.6.1
 on:
   push:
     branches: [fast-viewshed-gui]
-    paths: ['private_logo_kit/**', '.github/workflows/private-logo-kit.yml']
+    paths: ['private_logo_kit/**', 'FastViewshed_GUI_Windows/**', 'tests/**', '.github/workflows/private-logo-kit.yml']
   workflow_dispatch:
 permissions:
   contents: write

@@ -1,6 +1,13 @@
 # Fast Viewshed 3.6 — نام کشورها، ظاهر تازه و لایسنس دستگاه
 
-[**به‌روزرسانی کوچک از بستهٔ کامل ۳٫۵ یا ۳٫۶٫۰ به ۳٫۶٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/FastViewshed_Licensed_Update_v3.6.1.zip)
+[**به‌روزرسانی کوچک از بستهٔ کامل ۳٫۵ یا ۳٫۶٫۰ به ۳٫۶٫۲**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.2-private-kit/FastViewshed_Licensed_Update_v3.6.2.zip)
+
+اصلاحیهٔ ۳٫۶٫۲ خطای اشتباه تشخیص عقب‌بردن ساعت را رفع می‌کند. در همان
+راه‌اندازی ویندوز، زمان سپری‌شدهٔ سیستم، شامل Sleep و Hibernate، مبنای شمارش
+است؛ اصلاح ساعت و همگام‌سازی خودکار آن مدت را از نو شروع نمی‌کند. لایسنس
+نامحدود با ساعت مسدود نمی‌شود. سابقهٔ قدیمی بدون حذف زمان مصرف‌شده منتقل می‌شود.
+**پروفایل یا رجیستری فعال‌سازی را پاک نکنید.** اصلاحیه را در ابزار قبلی اعمال،
+Output را دوباره بسازید و روی سیستم دارای خطا نصب/جایگزین کنید.
 
 اصلاحیهٔ جدید فقط تعداد روز را امضا می‌کند و ساعت سیستم صادرکننده در شروع یا
 پایان اعتبار نقشی ندارد. زمان شروعِ همان فایل روی گیرنده ذخیره می‌شود و با ورود
@@ -11,7 +18,7 @@
 حفظ می‌شود و دریافت دوبارهٔ کتابخانه‌های بزرگ لازم نیست. نسخهٔ جدید نام کشورها
 را روی نقشه نمایش می‌دهد؛ پوسته سرمه‌ای/آبی/فیروزه‌ای و نقاط ورودی قرمز و واضح‌اند.
 
-[**بستهٔ کامل ابزار ساخت ۳٫۶٫۱ برای دریافت نخستین**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.1.zip)
+[**بستهٔ کامل ابزار ساخت ۳٫۶٫۲ برای دریافت نخستین**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.2-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.2.zip)
 
 **خروجی جدید بدون لایسنس مخصوص دستگاه اجرا نمی‌شود.** پس از ساخت، مشتری درخواست
 `.fvrequest` را از صفحهٔ فعال‌سازی ذخیره می‌کند و برای شما می‌فرستد. با
@@ -29,14 +36,14 @@
 نصب‌کننده و Portable کامل همراه Python/GDAL/Qt را دارد. سقف شعاع ۵۰۰۰ کیلومتر،
 نمایش عدد بدون صفرهای اعشاری اضافی و راه‌اندازی سریع وابستگی‌های آماده حفظ شده‌اند.
 
-[**دانلود کد کامل نسخهٔ ۳٫۶٫۱ در یک ZIP**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.6.1.zip)
+[**دانلود کد کامل نسخهٔ ۳٫۶٫۲ در یک ZIP**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.6.2.zip)
 · [راهنمای توسعه](SOURCE_README_FA.md)
-· [گزارش آزمون ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/LICENSED_KIT_VALIDATION_v3.6.1.json)
+· [گزارش آزمون ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.6.2-private-kit/LICENSED_KIT_VALIDATION_v3.6.2.json)
 
 ## نصب‌کنندهٔ پایهٔ قبلی، نسخهٔ ۳٫۴
 
 این بخش آرشیو نسخه‌های قبلیِ بدون لایسنس دستگاه است؛ برای توزیع نسخهٔ جدید،
-از ابزار ۳٫۶٫۱ و راهنمای لایسنس بالای صفحه استفاده کنید.
+از ابزار ۳٫۶٫۲ و راهنمای لایسنس بالای صفحه استفاده کنید.
 
 [**دانلود بستهٔ نصب ویندوز — داخل این ZIP فایل Setup.exe است**](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/00_FastViewshed_Windows_Setup_v3.4.0.zip)
 

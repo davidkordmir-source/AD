@@ -1,4 +1,4 @@
-# راهنمای کد کامل Fast Viewshed — بستهٔ ۳٫۶٫۱
+# راهنمای کد کامل Fast Viewshed — بستهٔ ۳٫۶٫۲
 
 این بسته کد کامل پروژه از شاخهٔ `fast-viewshed-gui` را همراه منابع، دادهٔ نمونه،
 آزمون‌ها و ابزارهای ساخت ویندوز دارد. نسخهٔ دقیق سورس و SHA256 تمام فایل‌ها در
@@ -65,14 +65,14 @@ python -m unittest discover -s tests -v
 Conda، conda-pack، Inno Setup 6 و کامپایلر C# چارچوب .NET ویندوز هستند.
 
 برای استفاده از وابستگی‌های آماده و ساخت محلی با لوگوی خودتان،
-[بستهٔ کامل ابزار ساخت ۳٫۶٫۱](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.1.zip)
+[بستهٔ کامل ابزار ساخت ۳٫۶٫۲](https://github.com/davidkordmir-source/AD/releases/download/v3.6.2-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.2.zip)
 را بگیرید و طبق `private_logo_kit/README_FA.txt` عمل کنید. این بستهٔ سورس، کد همان
 ابزارها را دارد؛ فایل‌های باینری کامپایلر و runtime در بستهٔ ابزار ساخت قرار دارند.
 نیازی به آپلود لوگوی شخصی روی گیت‌هاب نیست.
 
 سقف شعاع نسخهٔ فعلی ۵۰۰۰ کیلومتر است و صفرهای اعشاری اضافی نمایش داده نمی‌شوند.
 برخی راهنماها و نام‌های فایل‌های ساخت قدیمی، شمارهٔ نسخهٔ قبلی را دارند؛ راهنمای
-حاضر، فایل اصلی برنامه و گزارش `validation/licensed-kit-v3.6.1.json` مرجع
+حاضر، فایل اصلی برنامه و گزارش `validation/licensed-kit-v3.6.2.json` مرجع
 نسخهٔ فعلی این بسته هستند.
 
 ## بررسی بسته
@@ -82,7 +82,7 @@ Conda، conda-pack، Inno Setup 6 و کامپایلر C# چارچوب .NET وی�
 باینری قدیمی داخل `downloads` و فایل‌های محلیِ خارج از Commit وارد ZIP نمی‌شوند.
 کد برنامه برای تهیهٔ این بسته تغییر نکرده است.
 
-## لایسنس نسخهٔ ۳٫۶٫۱
+## لایسنس نسخهٔ ۳٫۶٫۲
 
 راهنمای صدور لایسنس مدت‌دار و نامحدود در
 `private_logo_kit/LICENSE_GUIDE_FA.md` است. در سورس، لایسنس برای توسعه اجباری نیست؛

@@ -9,6 +9,29 @@ def hardware_mac_ids():
     addresses = []
     if os.name == 'nt':
         from ctypes import wintypes
+        class Guid(ctypes.Structure):
+            _fields_ = [('Data1', wintypes.DWORD), ('Data2', wintypes.WORD),
+                        ('Data3', wintypes.WORD), ('Data4', ctypes.c_ubyte * 8)]
+        class InterfacePrefix(ctypes.Structure):
+            # Documented prefix of MIB_IF_ROW2 through PermanentPhysicalAddress.
+            _fields_ = [('Luid', ctypes.c_ulonglong), ('Index', wintypes.ULONG),
+                        ('Guid', Guid), ('Alias', ctypes.c_wchar * 257),
+                        ('Description', ctypes.c_wchar * 257), ('AddressLength', wintypes.ULONG),
+                        ('Address', ctypes.c_ubyte * 32), ('Permanent', ctypes.c_ubyte * 32)]
+        library = ctypes.WinDLL('iphlpapi')
+        permanent = library.GetIfEntry2
+        permanent.argtypes = [ctypes.c_void_p]
+        permanent.restype = wintypes.ULONG
+        def stable_address(adapter):
+            # Reserve more than the full fixed MIB_IF_ROW2, including counters.
+            row = ctypes.create_string_buffer(4096)
+            prefix = ctypes.cast(row, ctypes.POINTER(InterfacePrefix)).contents
+            prefix.Index = adapter.IfIndex
+            if permanent(row) == 0 and prefix.AddressLength == 6:
+                raw = bytes(prefix.Permanent[:6])
+                if any(raw) and not raw[0] & 3:
+                    return raw
+            return bytes(adapter.PhysicalAddress[:6])
         class Adapter(ctypes.Structure):
             pass
         Adapter._fields_ = [
@@ -20,7 +43,7 @@ def hardware_mac_ids():
             ('FriendlyName', wintypes.LPWSTR), ('PhysicalAddress', ctypes.c_ubyte * 8),
             ('PhysicalAddressLength', wintypes.ULONG), ('Flags', wintypes.DWORD),
             ('Mtu', wintypes.ULONG), ('IfType', wintypes.DWORD)]
-        function = ctypes.WinDLL('iphlpapi').GetAdaptersAddresses
+        function = library.GetAdaptersAddresses
         function.argtypes = [wintypes.ULONG, wintypes.ULONG, ctypes.c_void_p,
                              ctypes.c_void_p, ctypes.POINTER(wintypes.ULONG)]
         function.restype = wintypes.ULONG
@@ -42,7 +65,7 @@ def hardware_mac_ids():
                 if adapter.Length < Adapter.IfType.offset + 4:
                     break
                 if adapter.IfType in (6, 71) and adapter.PhysicalAddressLength == 6:
-                    addresses.append(bytes(adapter.PhysicalAddress[:6]))
+                    addresses.append(stable_address(adapter))
                 current = adapter.Next
             break
     else:

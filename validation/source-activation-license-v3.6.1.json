@@ -1,0 +1,8 @@
+{
+  "status": "passed",
+  "root_tests": 39,
+  "licensing_v1_tests": 8,
+  "activation_duration_v2_tests": 10,
+  "application_math_unchanged_from": "30e9c086957ec463437e844e742b4181e375c67b",
+  "platform": "Linux offscreen Qt; Windows report is separate"
+}

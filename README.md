@@ -1,18 +1,22 @@
 # Fast Viewshed 3.6 — نام کشورها، ظاهر تازه و لایسنس دستگاه
 
-[**به‌روزرسانی کوچک از بستهٔ کامل ۳٫۵ به ۳٫۶**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.0-private-kit/FastViewshed_Licensed_Update_v3.6.0.zip)
+[**به‌روزرسانی کوچک از بستهٔ کامل ۳٫۵ یا ۳٫۶٫۰ به ۳٫۶٫۱**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/FastViewshed_Licensed_Update_v3.6.1.zip)
+
+اصلاحیهٔ جدید فقط تعداد روز را امضا می‌کند و ساعت سیستم صادرکننده در شروع یا
+پایان اعتبار نقشی ندارد. زمان شروعِ همان فایل روی گیرنده ذخیره می‌شود و با ورود
+دوباره از نو شروع نمی‌شود. درخواست جدید، شناسهٔ دستگاه و هش MAC معتبر را دارد.
 
 محتویات ZIP را کنار `Build_Custom_Setup.bat` و `Payload` قبلی استخراج کنید،
 `Apply_3_6_Update.bat` و سپس `Build_Custom_Setup.bat` را اجرا کنید. لوگوی قبلی
 حفظ می‌شود و دریافت دوبارهٔ کتابخانه‌های بزرگ لازم نیست. نسخهٔ جدید نام کشورها
 را روی نقشه نمایش می‌دهد؛ پوسته سرمه‌ای/آبی/فیروزه‌ای و نقاط ورودی قرمز و واضح‌اند.
 
-[**بستهٔ کامل ابزار ساخت ۳٫۶ برای دریافت نخستین**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.0-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.0.zip)
+[**بستهٔ کامل ابزار ساخت ۳٫۶٫۱ برای دریافت نخستین**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/FastViewshed_Licensed_Private_Kit_v3.6.1.zip)
 
 **خروجی جدید بدون لایسنس مخصوص دستگاه اجرا نمی‌شود.** پس از ساخت، مشتری درخواست
 `.fvrequest` را از صفحهٔ فعال‌سازی ذخیره می‌کند و برای شما می‌فرستد. با
 `License_Owner/Issue_License.bat` برای همان دستگاه تعداد روز دلخواه یا Unlimited
-انتخاب کنید و فقط فایل `.fvlicense` را به او بدهید. مدت از لحظهٔ صدور است؛ ورود
+انتخاب کنید و فقط فایل `.fvlicense` را به او بدهید. مدت از اولین فعال‌سازی روی دستگاه گیرنده است؛ ورود
 دوبارهٔ فایل، زمان را تمدید نمی‌کند. بعد از انقضا برنامه تا ورود لایسنس جدید مسدود است.
 
 فقط **Output** و فایل لایسنس را برای مشتری بفرستید. ابزار صدور و **License_OwnerData**
@@ -25,14 +29,14 @@
 نصب‌کننده و Portable کامل همراه Python/GDAL/Qt را دارد. سقف شعاع ۵۰۰۰ کیلومتر،
 نمایش عدد بدون صفرهای اعشاری اضافی و راه‌اندازی سریع وابستگی‌های آماده حفظ شده‌اند.
 
-[**دانلود کد کامل نسخهٔ ۳٫۶ در یک ZIP**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.6.0.zip)
+[**دانلود کد کامل نسخهٔ ۳٫۶٫۱ در یک ZIP**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_Complete_Source_v3.6.1.zip)
 · [راهنمای توسعه](SOURCE_README_FA.md)
-· [گزارش آزمون ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.6.0-private-kit/LICENSED_KIT_VALIDATION_v3.6.0.json)
+· [گزارش آزمون ویندوز](https://github.com/davidkordmir-source/AD/releases/download/v3.6.1-private-kit/LICENSED_KIT_VALIDATION_v3.6.1.json)
 
 ## نصب‌کنندهٔ پایهٔ قبلی، نسخهٔ ۳٫۴
 
 این بخش آرشیو نسخه‌های قبلیِ بدون لایسنس دستگاه است؛ برای توزیع نسخهٔ جدید،
-از ابزار ۳٫۶ و راهنمای لایسنس بالای صفحه استفاده کنید.
+از ابزار ۳٫۶٫۱ و راهنمای لایسنس بالای صفحه استفاده کنید.
 
 [**دانلود بستهٔ نصب ویندوز — داخل این ZIP فایل Setup.exe است**](https://github.com/davidkordmir-source/AD/releases/download/v3.4.0-installer/00_FastViewshed_Windows_Setup_v3.4.0.zip)
 

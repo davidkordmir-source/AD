@@ -8,7 +8,7 @@ from professional_ui import STYLE
 
 
 def license_summary(payload):
-    expires = payload['expires_at']
+    expires = payload.get('display_expires_at', payload['expires_at'])
     duration = 'نامحدود' if expires is None else 'تا ' + datetime.fromtimestamp(expires).strftime('%Y-%m-%d %H:%M')
     return payload['customer'] + ' — ' + duration
 

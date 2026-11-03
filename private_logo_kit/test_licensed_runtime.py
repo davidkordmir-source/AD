@@ -16,7 +16,9 @@ def main():
     args = parser.parse_args()
     sys.path.insert(0, str(args.app))
     from licensing import LICENSING_REQUIRED, LicenseGuard, LicenseError, verify_license, canonical, protect, atomic_write
+    from license_clock import boot_clock
     assert LICENSING_REQUIRED
+    assert boot_clock() is not None, 'Windows boot identity and sleep-aware uptime unavailable.'
     guard = LicenseGuard()
     assert guard.macs, 'The Windows runner Ethernet MAC was not enumerated.'
     try:
@@ -121,6 +123,45 @@ def main():
     unlimited = issue('unlimited.fvlicense', '-Unlimited')
     assert guard.activate(unlimited)['expires_at'] is None
     assert guard.check()['expires_at'] is None
+    with tempfile.TemporaryDirectory() as folder:
+        wall, ticks, boot = [time.time()], [10000], ['native-test-boot-one']
+        def test_guard():
+            return LicenseGuard(guard.key, Path(folder), guard.device, clock=lambda: wall[0],
+                                monotonic=lambda: ticks[0], macs=guard.macs,
+                                boot_source=lambda: (boot[0], ticks[0]))
+        timer_guard = test_guard()
+        activated = timer_guard.activate(ten)
+        wall[0] -= 6*3600
+        ticks[0] += 3600
+        corrected = test_guard().check()
+        assert abs(corrected['display_expires_at']-wall[0]-(864000-3600)) < 1.1
+        assert corrected['activated_at'] == activated['activated_at']
+        ticks[0] += 864000
+        try:
+            test_guard().check()
+        except LicenseError as exc:
+            assert exc.code == 'expired'
+        else:
+            raise AssertionError('Calendar correction extended a timed license.')
+        # Unlimited licenses keep hardware/signature checks but have no clock expiry.
+        unbounded = test_guard().activate(unlimited)
+        boot[0], ticks[0] = 'native-test-boot-two', 10
+        wall[0] -= 10*365*86400
+        assert test_guard().check()['expires_at'] is None
+    with tempfile.TemporaryDirectory() as folder:
+        wall, ticks = [time.time()], [1000]
+        migration = LicenseGuard(guard.key, Path(folder), guard.device, clock=lambda: wall[0],
+                                 monotonic=lambda: ticks[0], macs=guard.macs,
+                                 boot_source=lambda: ('migration-boot', ticks[0]))
+        original = migration.activate(ten)
+        old_record = dict(device_id=guard.device, key_id=guard.key_id,
+                          last_seen=original['activated_at']+2*86400,
+                          activations=migration.state()['activations'])
+        atomic_write(migration.state_path, protect(canonical(old_record)))
+        wall[0] -= 5*86400
+        repaired = migration.check()
+        assert abs(repaired['display_expires_at']-wall[0]-8*86400) < 1.1
+        assert repaired['activated_at'] == original['activated_at']
     owner_gui_path = args.output/'OWNER_GUI_SMOKE.json'
     owner_gui = subprocess.run([powershell, '-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', str(args.owner),
                                 '-DataDirectory', str(args.owner_data), '-SmokeReport', str(owner_gui_path)],
@@ -140,12 +181,15 @@ def main():
     report = dict(status='passed', embedded_public_key=True, signed_ten_day_license=True,
                   unlimited_license=True, missing_license_blocks_gui=True, wrong_device_rejected=True,
                   wrong_owner_request_rejected=True, modified_duration_rejected=True,
-                  expiry_and_reimport_rejected=True, normal_clock_rollback_rejected=True,
+                  expiry_and_reimport_rejected=True, fallback_clock_rollback_rejected=True,
                   dpapi_registry_mirror_recovered=True, activation_history_recovered=True,
                   issuer_clock_not_in_license=True, full_days_from_first_activation=True, legacy_clock_record_migrated=True,
                   restart_and_reimport_preserve_start=True, recipient_dates_20_years_apart=True,
                   mac_identifiers_checked=bool(guard.macs), owner_issuer_gui=issuer_ui, renewed_gui=active)
-    (args.output/'LICENSE_VALIDATION_v3.6.1.json').write_text(json.dumps(report, indent=2))
+    report.update(windows_boot_clock=True, backward_ntp_correction_accepted=True,
+                  correction_does_not_extend_duration=True, unlimited_not_time_blocked=True,
+                  future_legacy_clock_migrated_without_reset=True)
+    (args.output/'LICENSE_VALIDATION_v3.6.2.json').write_text(json.dumps(report, indent=2))
     print('PASS: real Windows issuer, DPAPI, signed duration, binding, expiry, renewal and licensed GUI.')
 
 

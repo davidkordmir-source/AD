@@ -12,6 +12,7 @@ from functools import wraps
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -20,6 +21,7 @@ import tempfile
 import time
 from app_resources import launcher_resource
 from device_identity import hardware_mac_ids
+from license_clock import boot_clock
 
 LICENSING_REQUIRED = False  # Enabled only in the owner's locally built output.
 PRODUCT = 'FastViewshed'
@@ -100,7 +102,7 @@ def verify_license(document, key, device, now, macs=()):
         issued, expires = payload['issued_at'], payload['expires_at']
         if type(issued) is not int or (expires is not None and (type(expires) is not int or expires <= issued)):
             raise LicenseError('مدت لایسنس معتبر نیست.')
-        if now + 120 < issued:
+        if expires is not None and now + 120 < issued:
             raise LicenseError('تاریخ سیستم قبل از صدور لایسنس است؛ ساعت ویندوز را اصلاح کنید.')
         if expires is not None and now >= expires:
             raise LicenseError('مدت لایسنس تمام شده است؛ برای ادامه فایل جدید از صادرکننده بگیرید.', 'expired')
@@ -164,7 +166,7 @@ def serialized(method):
 
 
 class LicenseGuard:
-    def __init__(self, key=None, folder=None, device=None, clock=None, monotonic=None, macs=None):
+    def __init__(self, key=None, folder=None, device=None, clock=None, monotonic=None, macs=None, boot_source=None):
         try:
             self.key = key if key is not None else json.loads(launcher_resource(102))
             self.key_id = public_key_id(self.key)
@@ -173,6 +175,10 @@ class LicenseGuard:
         self.device = device or device_id()
         self.macs = hardware_mac_ids() if macs is None else list(macs)
         self.clock, self.monotonic = clock or time.time, monotonic or time.monotonic
+        # Explicit test clocks retain the strict legacy policy unless a boot
+        # source is also supplied. Production uses Windows' sleep-aware uptime.
+        self.boot_source = boot_source if boot_source is not None else (boot_clock if clock is None and monotonic is None else lambda: None)
+        self._sample = None
         self.started_at, self.started_monotonic = self.clock(), self.monotonic()
         self.folder = Path(folder) if folder is not None else Path(os.environ.get('LOCALAPPDATA') or Path.home()/'.local/share') / 'FastViewshed' / 'Licensing' / self.key_id
         self.active_path = self.folder / 'active.fvlicense'
@@ -224,9 +230,23 @@ class LicenseGuard:
                     pass
             values = [json.loads(protect(b, decrypt=True)) for b in copies]
             activations = {}
+            sample = None
+            sample_high = -1
             for item in values:
                 if item['device_id'] != self.device or item['key_id'] != self.key_id or type(item['last_seen']) is not int:
                     raise ValueError('Invalid protected clock record')
+                record_clock = item.get('clock_sample')
+                if record_clock is not None:
+                    if not isinstance(record_clock, dict) or not isinstance(record_clock.get('boot'), str) or not 1 <= len(record_clock['boot']) <= 128:
+                        raise ValueError('Invalid boot clock record')
+                    for field in ('uptime', 'wall', 'effective'):
+                        if type(record_clock.get(field)) not in (int, float) or not math.isfinite(record_clock[field]):
+                            raise ValueError('Invalid clock sample')
+                    if record_clock['uptime'] < 0:
+                        raise ValueError('Invalid uptime')
+                    if item['last_seen'] > sample_high:
+                        sample = dict(record_clock)
+                        sample_high = item['last_seen']
                 records = item.get('activations', {})
                 if not isinstance(records, dict) or len(records) > 10000:
                     raise ValueError('Invalid activation history')
@@ -240,22 +260,45 @@ class LicenseGuard:
                         if record['activated_at'] >= previous['activated_at']:
                             continue
                     activations[identifier] = dict(record)
-            return dict(last_seen=max((item['last_seen'] for item in values), default=0), activations=activations)
+            return dict(last_seen=max((item['last_seen'] for item in values), default=0), activations=activations, clock_sample=sample)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise LicenseError('اطلاعات محافظت‌شدهٔ فعال‌سازی آسیب دیده است؛ با صادرکننده تماس بگیرید.') from exc
 
-    def trusted_now(self, state=None):
+    def trusted_now(self, state=None, unlimited=False, allow_rebase=False):
         now = self.clock()
+        records = state if state is not None else self.state()
+        high = records['last_seen']
+        boot = self.boot_source()
+        previous = records.get('clock_sample')
+        if boot is not None:
+            identifier, uptime = boot
+            if previous is None:
+                # One-time migration preserves all consumed time and every
+                # activation start, including an old incorrectly future clock.
+                effective = max(now, high)
+            elif identifier == previous['boot'] and uptime >= previous['uptime']:
+                effective = max(high, previous['effective'] + uptime - previous['uptime'])
+            else:
+                gap = now - previous['wall']
+                if gap < -120 or (identifier == previous['boot'] and uptime < previous['uptime']):
+                    if not (unlimited or allow_rebase):
+                        raise LicenseError('ساعت ثبت‌شده با زمان پس از راه‌اندازی ویندوز سازگار نیست؛ ساعت را اصلاح کنید یا از صادرکننده لایسنس جدید بگیرید. سوابق فعال‌سازی را حذف نکنید.', 'clock')
+                    # A newly signed license or an unlimited one can establish
+                    # a new wall-clock anchor; old consumed time never decreases.
+                    effective = max(high, previous['effective']) + uptime
+                else:
+                    effective = max(high, previous['effective'] + max(0, gap))
+            self._sample = dict(boot=identifier, uptime=uptime, wall=now, effective=effective)
+            return effective
         expected = self.started_at + max(0, self.monotonic() - self.started_monotonic)
-        high = (state if state is not None else self.state())['last_seen']
-        if now + 120 < max(high, expected):
-            raise LicenseError('عقب‌بردن ساعت سیستم شناسایی شد؛ تاریخ و ساعت صحیح را تنظیم کنید.')
+        if now + 120 < max(high, expected) and not (unlimited or allow_rebase):
+            raise LicenseError('عقب‌بردن ساعت سیستم شناسایی شد؛ تاریخ و ساعت صحیح را تنظیم کنید.', 'clock')
         return max(now, expected, high)
 
     def remember(self, now, state=None):
         records = state if state is not None else self.state()
         state = canonical(dict(device_id=self.device, key_id=self.key_id, last_seen=max(int(now), records['last_seen']),
-                               activations=records['activations']))
+                               activations=records['activations'], clock_sample=self._sample or records.get('clock_sample')))
         encrypted = protect(state)
         atomic_write(self.state_path, encrypted)
         if self.use_registry:
@@ -281,7 +324,16 @@ class LicenseGuard:
         expires = None if payload['duration_days'] is None else started + payload['duration_days'] * 86400
         if expires is not None and now >= expires:
             raise LicenseError('مدت لایسنس تمام شده است؛ برای ادامه فایل جدید از صادرکننده بگیرید.', 'expired')
-        return dict(payload, activated_at=started, expires_at=expires)
+        display = None if expires is None else int(self.clock()+max(0, expires-now))
+        return dict(payload, activated_at=started, expires_at=expires, display_expires_at=display)
+
+    def authenticated_time(self, document, state, activating=False):
+        # Authenticate before allowing any clock exception. A signed unlimited
+        # license has no temporal restriction but still enforces its device/MAC.
+        claims = verify_license(document, self.key, self.device, self.clock(), self.macs)
+        unlimited = (claims.get('duration_days') is None if claims['version'] == 2 else claims['expires_at'] is None)
+        new_license = activating and claims['version'] == 2 and claims['license_id'] not in state['activations']
+        return self.trusted_now(state, unlimited=unlimited, allow_rebase=new_license)
 
     @serialized
     def activate(self, filename):
@@ -294,7 +346,7 @@ class LicenseGuard:
         except (ValueError, UnicodeError) as exc:
             raise LicenseError('فایل انتخاب‌شده لایسنس معتبر نیست.') from exc
         state = self.state()
-        now = self.trusted_now(state)
+        now = self.authenticated_time(document, state, activating=True)
         try:
             payload = self.resolve(document, now, state, first_activation=True)
         except LicenseError as exc:
@@ -313,9 +365,10 @@ class LicenseGuard:
             if self.active_path.stat().st_size > MAX_LICENSE_BYTES:
                 raise LicenseError('فایل فعال‌سازی آسیب دیده است.')
             state = self.state()
-            now = self.trusted_now(state)
+            document = json.loads(self.active_path.read_bytes())
+            now = self.authenticated_time(document, state)
             try:
-                payload = self.resolve(json.loads(self.active_path.read_bytes()), now, state)
+                payload = self.resolve(document, now, state)
             except LicenseError as exc:
                 if exc.code == 'expired':
                     self.remember(now, state)

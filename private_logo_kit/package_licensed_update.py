@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 ROOT = Path(__file__).resolve().parent
-NAME = 'FastViewshed_Licensed_Update_v3.6.1.zip'
-FILES = ['Build_Custom_Setup.ps1', 'Embed_Logo.ps1', 'PrivateLogo.iss', 'Short_Paths.ps1', 'README_FA.txt', 'OUTPUT_README_FA.txt', 'LICENSE_GUIDE_FA.md', 'License_Owner/Owner_Licensing.ps1', 'License_Owner/Issue_License.bat', 'Payload/FastViewshed_GUI.py', 'Payload/FastViewshed_GUI_COPY.txt', 'Payload/desktop_customization.py', 'Payload/professional_ui.py', 'Payload/app_resources.py', 'Payload/licensing.py', 'Payload/license_dialog.py', 'Payload/device_identity.py', 'Payload/scripts/check_offline.py']
+NAME = 'FastViewshed_Licensed_Update_v3.6.2.zip'
+FILES = ['Build_Custom_Setup.ps1', 'Embed_Logo.ps1', 'PrivateLogo.iss', 'Short_Paths.ps1', 'README_FA.txt', 'OUTPUT_README_FA.txt', 'LICENSE_GUIDE_FA.md', 'License_Owner/Owner_Licensing.ps1', 'License_Owner/Issue_License.bat', 'Payload/FastViewshed_GUI.py', 'Payload/FastViewshed_GUI_COPY.txt', 'Payload/desktop_customization.py', 'Payload/professional_ui.py', 'Payload/app_resources.py', 'Payload/licensing.py', 'Payload/license_dialog.py', 'Payload/device_identity.py', 'Payload/license_clock.py', 'Payload/scripts/check_offline.py']
 
 def content(name):
     path = ROOT.parent / 'FastViewshed_GUI_Windows' / name[len('Payload/'):] if name.startswith('Payload/') else ROOT / name
@@ -17,7 +17,7 @@ def content(name):
 def package(output):
     output.mkdir(parents=True,exist_ok=True)
     target=output/NAME
-    manifest={'version':'3.6.1','files':[{'path':n,'sha256':hashlib.sha256(content(n)).hexdigest()} for n in FILES]}
+    manifest={'version':'3.6.2','files':[{'path':n,'sha256':hashlib.sha256(content(n)).hexdigest()} for n in FILES]}
     with ZipFile(target,'w',ZIP_DEFLATED) as z:
         for n in ['Apply_3_6_Update.bat','Apply_3_6_Update.ps1']:
             z.writestr(n,content(n))

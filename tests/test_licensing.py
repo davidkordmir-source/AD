@@ -85,7 +85,7 @@ class LicensingTests(unittest.TestCase):
         self.assertEqual(self.guard.active_path.read_bytes(), before)
 
     def test_normal_clock_rollback_and_corrupt_clock_state_are_detected(self):
-        self.guard.activate(self.license_file('unlimited'))
+        self.guard.activate(self.license_file('ten_day'))
         self.now += 3600
         self.guard.check()
         self.now -= 1800

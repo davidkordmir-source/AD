@@ -7,6 +7,8 @@ rewrites the program, clones a VM, or removes every protected local record.
 """
 import base64
 import ctypes
+from contextlib import contextmanager
+from functools import wraps
 import hashlib
 import hmac
 import json
@@ -17,6 +19,7 @@ import re
 import tempfile
 import time
 from app_resources import launcher_resource
+from device_identity import hardware_mac_ids
 
 LICENSING_REQUIRED = False  # Enabled only in the owner's locally built output.
 PRODUCT = 'FastViewshed'
@@ -58,8 +61,8 @@ def decode64(value):
         raise LicenseError('ساختار فایل لایسنس معتبر نیست.') from exc
 
 
-def verify_license(document, key, device, now):
-    """Verify signature before trusting customer, duration, or device fields."""
+def verify_license(document, key, device, now, macs=()):
+    """Verify signed claims. Version 2 expiry is resolved by LicenseGuard's ledger."""
     try:
         raw = decode64(document['payload'])
         signature = decode64(document['signature'])
@@ -76,17 +79,27 @@ def verify_license(document, key, device, now):
         if not hmac.compare_digest(actual, expected):
             raise LicenseError('امضای لایسنس معتبر نیست؛ فایل دست‌کاری شده یا صادرکننده متفاوت است.')
         payload = json.loads(raw)
-        if payload.get('version') != 1 or payload.get('product') != PRODUCT or payload.get('key_id') != public_key_id(key):
+        if type(payload.get('version')) is not int or payload['version'] not in (1, 2) or payload.get('product') != PRODUCT or payload.get('key_id') != public_key_id(key):
             raise LicenseError('این لایسنس متعلق به این نسخه از برنامه نیست.')
         if not isinstance(payload.get('device_id'), str) or not hmac.compare_digest(payload['device_id'], device):
             raise LicenseError('این لایسنس مخصوص دستگاه دیگری است.')
         if not re.fullmatch(r'[0-9a-f]{32}', payload.get('license_id', '')):
             raise LicenseError('شناسهٔ لایسنس معتبر نیست.')
+        if not isinstance(payload.get('customer'), str) or not 1 <= len(payload['customer']) <= 160:
+            raise LicenseError('نام دریافت‌کنندهٔ لایسنس معتبر نیست.')
+        if payload['version'] == 2:
+            days = payload['duration_days']
+            if payload.get('activation_mode') != 'first_activation' or (days is not None and (type(days) is not int or not 1 <= days <= 36500)):
+                raise LicenseError('مدت لایسنس معتبر نیست.')
+            signed_macs = payload.get('mac_ids', [])
+            if not isinstance(signed_macs, list) or len(signed_macs) > 64 or any(not isinstance(m, str) or not re.fullmatch('[0-9a-f]{64}', m) for m in signed_macs):
+                raise LicenseError('شناسهٔ کارت شبکه معتبر نیست.')
+            if signed_macs and not set(signed_macs).intersection(macs):
+                raise LicenseError('کارت شبکهٔ ثبت‌شده برای این لایسنس شناسایی نشد؛ با صادرکننده تماس بگیرید.')
+            return payload
         issued, expires = payload['issued_at'], payload['expires_at']
         if type(issued) is not int or (expires is not None and (type(expires) is not int or expires <= issued)):
             raise LicenseError('مدت لایسنس معتبر نیست.')
-        if not isinstance(payload.get('customer'), str) or not 1 <= len(payload['customer']) <= 160:
-            raise LicenseError('نام دریافت‌کنندهٔ لایسنس معتبر نیست.')
         if now + 120 < issued:
             raise LicenseError('تاریخ سیستم قبل از صدور لایسنس است؛ ساعت ویندوز را اصلاح کنید.')
         if expires is not None and now >= expires:
@@ -139,14 +152,26 @@ def atomic_write(path, content):
             os.unlink(temporary)
 
 
+def serialized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        try:
+            with self.locked():
+                return method(self, *args, **kwargs)
+        except OSError as exc:
+            raise LicenseError('ذخیرهٔ فعال‌سازی ممکن نشد؛ دسترسی پوشه یا اجرای هم‌زمان را بررسی کنید.') from exc
+    return call
+
+
 class LicenseGuard:
-    def __init__(self, key=None, folder=None, device=None, clock=None, monotonic=None):
+    def __init__(self, key=None, folder=None, device=None, clock=None, monotonic=None, macs=None):
         try:
             self.key = key if key is not None else json.loads(launcher_resource(102))
             self.key_id = public_key_id(self.key)
         except (KeyError, ValueError, TypeError) as exc:
             raise LicenseError('کلید لایسنس داخل برنامه پیدا نشد؛ نسخهٔ کامل را دوباره نصب کنید.') from exc
         self.device = device or device_id()
+        self.macs = hardware_mac_ids() if macs is None else list(macs)
         self.clock, self.monotonic = clock or time.time, monotonic or time.monotonic
         self.started_at, self.started_monotonic = self.clock(), self.monotonic()
         self.folder = Path(folder) if folder is not None else Path(os.environ.get('LOCALAPPDATA') or Path.home()/'.local/share') / 'FastViewshed' / 'Licensing' / self.key_id
@@ -156,12 +181,39 @@ class LicenseGuard:
         self.use_registry = os.name == 'nt' and folder is None
 
     def request(self):
-        return dict(version=1, product=PRODUCT, device_id=self.device, key_id=self.key_id)
+        return dict(version=2, product=PRODUCT, device_id=self.device, key_id=self.key_id,
+                    activation_mode='first_activation', mac_ids=self.macs)
+
+    @contextmanager
+    def locked(self):
+        """Keep two application instances from overwriting activation history."""
+        self.folder.mkdir(parents=True, exist_ok=True)
+        with (self.folder / '.license.lock').open('a+b') as stream:
+            if os.name == 'nt':
+                import msvcrt
+                if stream.seek(0, 2) == 0:
+                    stream.write(b'0')
+                    stream.flush()
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == 'nt':
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     def state(self):
         copies = []
         try:
             if self.state_path.exists():
+                if self.state_path.stat().st_size > 8 * 1024 * 1024:
+                    raise ValueError('Clock record is too large')
                 copies.append(self.state_path.read_bytes())
             if self.use_registry:
                 import winreg
@@ -171,23 +223,39 @@ class LicenseGuard:
                 except FileNotFoundError:
                     pass
             values = [json.loads(protect(b, decrypt=True)) for b in copies]
+            activations = {}
             for item in values:
                 if item['device_id'] != self.device or item['key_id'] != self.key_id or type(item['last_seen']) is not int:
                     raise ValueError('Invalid protected clock record')
-            return max((item['last_seen'] for item in values), default=0)
+                records = item.get('activations', {})
+                if not isinstance(records, dict) or len(records) > 10000:
+                    raise ValueError('Invalid activation history')
+                for identifier, record in records.items():
+                    if not re.fullmatch('[0-9a-f]{32}', identifier) or not isinstance(record, dict) or type(record.get('activated_at')) is not int or not re.fullmatch('[0-9a-f]{64}', record.get('payload_sha256', '')):
+                        raise ValueError('Invalid activation record')
+                    if identifier in activations:
+                        previous = activations[identifier]
+                        if previous['payload_sha256'] != record['payload_sha256']:
+                            raise ValueError('Conflicting activation records')
+                        if record['activated_at'] >= previous['activated_at']:
+                            continue
+                    activations[identifier] = dict(record)
+            return dict(last_seen=max((item['last_seen'] for item in values), default=0), activations=activations)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise LicenseError('اطلاعات محافظت‌شدهٔ فعال‌سازی آسیب دیده است؛ با صادرکننده تماس بگیرید.') from exc
 
-    def trusted_now(self):
+    def trusted_now(self, state=None):
         now = self.clock()
         expected = self.started_at + max(0, self.monotonic() - self.started_monotonic)
-        high = self.state()
+        high = (state if state is not None else self.state())['last_seen']
         if now + 120 < max(high, expected):
             raise LicenseError('عقب‌بردن ساعت سیستم شناسایی شد؛ تاریخ و ساعت صحیح را تنظیم کنید.')
         return max(now, expected, high)
 
-    def remember(self, now):
-        state = canonical(dict(device_id=self.device, key_id=self.key_id, last_seen=int(now)))
+    def remember(self, now, state=None):
+        records = state if state is not None else self.state()
+        state = canonical(dict(device_id=self.device, key_id=self.key_id, last_seen=max(int(now), records['last_seen']),
+                               activations=records['activations']))
         encrypted = protect(state)
         atomic_write(self.state_path, encrypted)
         if self.use_registry:
@@ -195,6 +263,27 @@ class LicenseGuard:
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.registry_path) as key:
                 winreg.SetValueEx(key, 'Clock', 0, winreg.REG_BINARY, encrypted)
 
+    def resolve(self, document, now, state, first_activation=False):
+        payload = verify_license(document, self.key, self.device, now, self.macs)
+        if payload['version'] == 1:
+            return payload
+        identifier = payload['license_id']
+        digest = hashlib.sha256(decode64(document['payload'])).hexdigest()
+        record = state['activations'].get(identifier)
+        if record is None:
+            if not first_activation:
+                raise LicenseError('سابقهٔ فعال‌سازی این لایسنس پیدا نشد؛ فایل لایسنس را وارد کنید.')
+            record = dict(activated_at=int(now), payload_sha256=digest)
+            state['activations'][identifier] = record
+        if record['payload_sha256'] != digest:
+            raise LicenseError('شناسهٔ لایسنس با سابقهٔ فعال‌سازی سازگار نیست.')
+        started = record['activated_at']
+        expires = None if payload['duration_days'] is None else started + payload['duration_days'] * 86400
+        if expires is not None and now >= expires:
+            raise LicenseError('مدت لایسنس تمام شده است؛ برای ادامه فایل جدید از صادرکننده بگیرید.', 'expired')
+        return dict(payload, activated_at=started, expires_at=expires)
+
+    @serialized
     def activate(self, filename):
         path = Path(filename)
         if path.stat().st_size > MAX_LICENSE_BYTES:
@@ -204,31 +293,34 @@ class LicenseGuard:
             document = json.loads(raw)
         except (ValueError, UnicodeError) as exc:
             raise LicenseError('فایل انتخاب‌شده لایسنس معتبر نیست.') from exc
-        now = self.trusted_now()
+        state = self.state()
+        now = self.trusted_now(state)
         try:
-            payload = verify_license(document, self.key, self.device, now)
+            payload = self.resolve(document, now, state, first_activation=True)
         except LicenseError as exc:
             if exc.code == 'expired':
-                self.remember(now)
+                self.remember(now, state)
             raise
-        self.remember(now)
+        self.remember(now, state)
         atomic_write(self.active_path, canonical(document))
         return payload
 
+    @serialized
     def check(self):
         try:
             if not self.active_path.exists():
                 raise LicenseError('برنامه بدون لایسنس فعال اجرا نمی‌شود؛ فایل صادرشده برای همین دستگاه را انتخاب کنید.')
             if self.active_path.stat().st_size > MAX_LICENSE_BYTES:
                 raise LicenseError('فایل فعال‌سازی آسیب دیده است.')
-            now = self.trusted_now()
+            state = self.state()
+            now = self.trusted_now(state)
             try:
-                payload = verify_license(json.loads(self.active_path.read_bytes()), self.key, self.device, now)
+                payload = self.resolve(json.loads(self.active_path.read_bytes()), now, state)
             except LicenseError as exc:
                 if exc.code == 'expired':
-                    self.remember(now)
+                    self.remember(now, state)
                 raise
-            self.remember(now)
+            self.remember(now, state)
             return payload
         except (OSError, ValueError, TypeError) as exc:
             if isinstance(exc, LicenseError):

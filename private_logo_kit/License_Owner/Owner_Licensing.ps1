@@ -43,15 +43,15 @@ function New-LicenseFile([string]$Request, [string]$Name, [int]$Duration, [bool]
     $requestData = Get-Content -LiteralPath $Request -Raw -Encoding UTF8 | ConvertFrom-Json
     $public = Get-Content -LiteralPath $publicPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $keyId = Get-KeyId $public
-    if ($requestData.product -cne 'FastViewshed' -or $requestData.version -ne 1 -or $requestData.device_id -cnotmatch '^[0-9a-f]{64}$' -or $requestData.key_id -cne $keyId) { throw 'This request belongs to another owner key or is not a valid device request. Use the same License_OwnerData that built the customer application.' }
+    if ($requestData.product -cne 'FastViewshed' -or $requestData.version -notin @(1,2) -or $requestData.device_id -cnotmatch '^[0-9a-f]{64}$' -or $requestData.key_id -cne $keyId) { throw 'This request belongs to another owner key or is not a valid device request. Use the same License_OwnerData that built the customer application.' }
+    $macs = @()
+    if ($requestData.version -eq 2 -and $null -ne $requestData.mac_ids) { $macs = @($requestData.mac_ids) }
+    if ($macs.Count -gt 64 -or @($macs | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[0-9a-f]{64}$' }).Count -gt 0) { throw 'The MAC identifiers in the request are invalid.' }
     $rsa = Open-SigningKey
     try {
-        $now = [DateTime]::UtcNow
-        $epoch = [DateTime]::SpecifyKind([DateTime]'1970-01-01', [DateTimeKind]::Utc)
-        $issued = [long][Math]::Floor(($now - $epoch).TotalSeconds)
-        $expires = $null
-        if (-not $Forever) { $expires = $issued + [long]$Duration * 86400 }
-        $payload = @{version=1;product='FastViewshed';key_id=$keyId;device_id=$requestData.device_id;customer=$Name;license_id=[guid]::NewGuid().ToString('N');issued_at=$issued;expires_at=$expires}
+        $days = $null
+        if (-not $Forever) { $days = $Duration }
+        $payload = @{version=2;product='FastViewshed';key_id=$keyId;device_id=$requestData.device_id;customer=$Name;license_id=[guid]::NewGuid().ToString('N');activation_mode='first_activation';duration_days=$days;mac_ids=@($macs)}
         $raw = [Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json -Compress -Depth 5))
         $signature = $rsa.SignData($raw, [Security.Cryptography.CryptoConfig]::MapNameToOID('SHA256'))
         $document = @{payload=[Convert]::ToBase64String($raw);signature=[Convert]::ToBase64String($signature)}
@@ -100,14 +100,14 @@ try {
     $nameLabel = New-Object Windows.Forms.Label; $nameLabel.Text = 'Customer name'; $nameLabel.AutoSize = $true
     $nameBox = New-Object Windows.Forms.TextBox; $nameBox.Dock = 'Fill'; $nameBox.MaxLength = 160
     $layout.Controls.Add($nameLabel,0,2); $layout.Controls.Add($nameBox,1,2)
-    $daysLabel = New-Object Windows.Forms.Label; $daysLabel.Text = 'Days from issue (UTC)'; $daysLabel.AutoSize = $true
+    $daysLabel = New-Object Windows.Forms.Label; $daysLabel.Text = 'Days from activation'; $daysLabel.AutoSize = $true
     $daysBox = New-Object Windows.Forms.NumericUpDown; $daysBox.Minimum = 1; $daysBox.Maximum = 36500; $daysBox.Value = 10
     $layout.Controls.Add($daysLabel,0,3); $layout.Controls.Add($daysBox,1,3)
     $forever = New-Object Windows.Forms.CheckBox; $forever.Text = 'Unlimited / no expiry'; $forever.AutoSize = $true
     $forever.Add_CheckedChanged({ $daysBox.Enabled = -not $forever.Checked })
     $layout.Controls.Add($forever,1,4)
     $notice = New-Object Windows.Forms.Label
-    $notice.Text = 'Only send the .fvlicense file to the customer. Keep this issuer and License_OwnerData private. Re-importing a license does not restart its duration.'
+    $notice.Text = 'Days start on the customer computer at first activation. Your clock is not used. Re-importing the same file does not restart its duration. Keep License_OwnerData private.'
     $notice.AutoSize = $true; $notice.MaximumSize = New-Object Drawing.Size(590, 100)
     $layout.Controls.Add($notice,0,5); $layout.SetColumnSpan($notice,2)
     $issue = New-Object Windows.Forms.Button; $issue.Text = 'Create license...'; $issue.AutoSize = $true

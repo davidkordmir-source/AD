@@ -117,7 +117,7 @@ try {
     $inventory = @(Get-ChildItem -LiteralPath $deliverable -File -Recurse | ForEach-Object {
         @{path=$_.FullName.Substring($deliverable.Length + 1);bytes=$_.Length}
     })
-    @{version='3.6.0';files=$inventory;embedded_logo=$true;device_license_required=$true} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $deliverable 'FILES.json') -Encoding UTF8
+    @{version='3.6.1';files=$inventory;embedded_logo=$true;device_license_required=$true} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $deliverable 'FILES.json') -Encoding UTF8
     $checks = @()
     $checks += ((Get-FileHash -LiteralPath $built -Algorithm SHA256).Hash.ToLowerInvariant() + '  FastViewshed_With_Logo_Setup.exe')
     $checks += ((Get-FileHash -LiteralPath (Join-Path $portable 'FastViewshed.exe') -Algorithm SHA256).Hash.ToLowerInvariant() + '  Portable/FastViewshed.exe')

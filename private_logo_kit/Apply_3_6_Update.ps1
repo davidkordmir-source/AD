@@ -8,7 +8,7 @@ try {
     $kit = $PSScriptRoot
     $fixRoot = Join-Path $kit 'Update_3_6'
     $fix = Get-Content -LiteralPath (Join-Path $fixRoot 'FIX_FILES_SHA256.json') -Raw | ConvertFrom-Json
-    $allowed = @('Build_Custom_Setup.ps1', 'Embed_Logo.ps1', 'PrivateLogo.iss', 'Short_Paths.ps1', 'README_FA.txt', 'OUTPUT_README_FA.txt', 'LICENSE_GUIDE_FA.md', 'License_Owner/Owner_Licensing.ps1', 'License_Owner/Issue_License.bat', 'Payload/FastViewshed_GUI.py', 'Payload/FastViewshed_GUI_COPY.txt', 'Payload/desktop_customization.py', 'Payload/professional_ui.py', 'Payload/app_resources.py', 'Payload/licensing.py', 'Payload/license_dialog.py', 'Payload/scripts/check_offline.py')
+    $allowed = @('Build_Custom_Setup.ps1', 'Embed_Logo.ps1', 'PrivateLogo.iss', 'Short_Paths.ps1', 'README_FA.txt', 'OUTPUT_README_FA.txt', 'LICENSE_GUIDE_FA.md', 'License_Owner/Owner_Licensing.ps1', 'License_Owner/Issue_License.bat', 'Payload/FastViewshed_GUI.py', 'Payload/FastViewshed_GUI_COPY.txt', 'Payload/desktop_customization.py', 'Payload/professional_ui.py', 'Payload/app_resources.py', 'Payload/licensing.py', 'Payload/license_dialog.py', 'Payload/device_identity.py', 'Payload/scripts/check_offline.py')
     if ($fix.files.Count -ne $allowed.Count) { throw 'Incomplete path fix.' }
     foreach ($name in $allowed) {
         if (@($fix.files | Where-Object { $_.path -ceq $name }).Count -ne 1) { throw 'Unexpected path fix layout.' }
@@ -24,7 +24,7 @@ try {
     $manifestPath = Join-Path $kit 'KIT_FILES_SHA256.json'
     if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'Extract this fix beside Build_Custom_Setup.bat in the complete 3.5 kit, then run Apply_3_6_Update.bat.' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.version -notin @('3.5.0', '3.5.1', '3.6.0')) { throw 'This fix requires the complete private kit 3.5.0 or 3.5.1.' }
+    if ($manifest.version -notin @('3.5.0', '3.5.1', '3.6.0', '3.6.1')) { throw 'This fix requires the complete private kit 3.5.0 or 3.5.1.' }
     Write-Host 'Verifying the existing complete kit. Your logo and Output are preserved...'
     foreach ($entry in $manifest.files) {
         $file = Join-Path $kit $entry.path
@@ -60,12 +60,12 @@ try {
         $matches = @($manifest.files | Where-Object { $_.path -ceq $entry.path })
         if ($matches.Count -eq 1) { $matches[0].sha256 = $entry.sha256 } else { $manifest.files = @($manifest.files) + $entry }
     }
-    $manifest.version = '3.6.0'
+    $manifest.version = '3.6.1'
     $manifestTemp = Join-Path $kit ('KIT_FILES_SHA256.' + [guid]::NewGuid().ToString('N') + '.tmp')
     [IO.File]::WriteAllText($manifestTemp, ($manifest | ConvertTo-Json -Depth 10), [Text.Encoding]::UTF8)
     [IO.File]::Replace($manifestTemp, $manifestPath, (Join-Path $backup 'replaced-manifest.json'))
     $backupReady = $false
-    Write-Host 'Update applied (3.6.0). Run Build_Custom_Setup.bat again.' -ForegroundColor Green
+    Write-Host 'Update applied (3.6.1). Run Build_Custom_Setup.bat again.' -ForegroundColor Green
     Write-Host 'No administrator access or Windows setting change is needed. Your logo stays local.'
     exit 0
 } catch {

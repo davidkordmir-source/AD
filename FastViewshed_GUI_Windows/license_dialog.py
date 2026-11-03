@@ -25,7 +25,7 @@ class ActivationDialog(QtWidgets.QDialog):
         title = QtWidgets.QLabel('فعال‌سازی برای این دستگاه')
         title.setObjectName('title')
         layout.addWidget(title)
-        text = QtWidgets.QLabel('فایل درخواست را برای صادرکننده بفرستید و فایل لایسنس دریافتی را وارد کنید.\nلایسنس این دستگاه روی رایانهٔ دیگر فعال نمی‌شود.')
+        text = QtWidgets.QLabel('فایل درخواست را برای صادرکننده بفرستید و فایل لایسنس دریافتی را وارد کنید.\nمدت لایسنس جدید از اولین فعال‌سازی روی همین دستگاه شروع می‌شود؛ ورود دوباره آن را تمدید نمی‌کند.')
         text.setWordWrap(True)
         layout.addWidget(text)
         identity = QtWidgets.QLineEdit(guard.device)

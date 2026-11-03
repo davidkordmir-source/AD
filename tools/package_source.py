@@ -10,8 +10,8 @@ import tempfile
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME = 'FastViewshed_Complete_Source_v3.6.0.zip'
-PREFIX = 'FastViewshed_Complete_Source_v3.6.0/'
+NAME = 'FastViewshed_Complete_Source_v3.6.1.zip'
+PREFIX = 'FastViewshed_Complete_Source_v3.6.1/'
 
 
 def git(*args):
@@ -26,7 +26,7 @@ def package(output, revision='HEAD'):
     target = output / NAME
     temporary = target.with_suffix('.zip.tmp')
     manifest = {'source_revision': commit, 'source_branch': 'fast-viewshed-gui',
-                'package_version': '3.6.0', 'native_runtime_included': False,
+                'package_version': '3.6.1', 'native_runtime_included': False,
                 'excluded_paths': ['downloads/'], 'files': []}
 
     def write(archive, name, content, mode=0o100644):

@@ -1200,7 +1200,7 @@ try:
             self.map_thread = None
             self.map_worker = None
             self._close_after_map = False
-            self.setWindowTitle('Fast Sector Viewshed 3.6.0 | دیدپذیری قطاعی آفلاین')
+            self.setWindowTitle('Fast Sector Viewshed 3.6.1 | دیدپذیری قطاعی آفلاین')
             self.resize(1260, 860)
             self.setMinimumSize(940, 650)
             self.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -1841,7 +1841,7 @@ try:
             self.map_view.clear_results()
             self.map_view.fit_observers(config.radius_m)
             self.view_selector.setCurrentIndex(0)
-            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.6.0 ──')
+            self.log.appendPlainText('\n── تحلیل آفلاین با GDAL | نسخهٔ 3.6.1 ──')
             self.status.setText('در حال پردازش…')
             self.thread = QtCore.QThread(self)
             self.worker = AnalysisWorker(config, self.cancel_event)
@@ -2012,7 +2012,7 @@ try:
         if report_path:
 
             def report_ready():
-                report = dict(status='passed', executable=sys.executable, version='3.6.0', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown, country_labels=len(window.map_view.country_labels), visible_country_labels=len(getattr(window.map_view, 'visible_country_labels', [])), professional_theme=True, license_required=licensing.LICENSING_REQUIRED, license_active=guard is not None)
+                report = dict(status='passed', executable=sys.executable, version='3.6.1', gui_visible=window.isVisible(), icon_loaded=not window.windowIcon().isNull(), offline_map_countries=255, offline_map_points=4255, map_features=window.map_view.boundary_count, highlighted_groups=len(window.primary_groups), combined_naming_controls=True, custom_map_import=True, password_protected_personalization=True, splash_shown=splash_was_shown, country_labels=len(window.map_view.country_labels), visible_country_labels=len(getattr(window.map_view, 'visible_country_labels', [])), professional_theme=True, license_required=licensing.LICENSING_REQUIRED, license_active=guard is not None)
                 Path(report_path).write_text(json.dumps(report, indent=2), encoding='utf-8')
                 window.close()
             QtCore.QTimer.singleShot(1200, report_ready)

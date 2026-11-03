@@ -27,7 +27,7 @@ def main():
     files = ["FastViewshed_GUI.py", "FastViewshed_GUI_COPY.txt", "desktop_customization.py", "Install_Fast_Viewshed.bat",
              "Run_Fast_Viewshed.bat", "Install_Fast_Viewshed_COPY.txt", "Run_Fast_Viewshed_COPY.txt",
              "environment-fast.yml", "environment-fast_COPY.txt", "README_FAST_FA.md", "BRANDING_UPDATE_FA.txt", "run_fast_gui.py",
-             "professional_ui.py", "app_resources.py", "licensing.py", "license_dialog.py",
+             "professional_ui.py", "app_resources.py", "licensing.py", "license_dialog.py", "device_identity.py",
              "sector_viewshed/core.py", "sector_viewshed/__init__.py",
              "scripts/build_fast_standalone.py", "scripts/benchmark_fast.py",
              "scripts/validate_large_grid.py", "scripts/package_fast.py",

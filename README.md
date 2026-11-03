@@ -1,5 +1,12 @@
 # Fast Viewshed 3.6 — نام کشورها، ظاهر تازه و لایسنس دستگاه
 
+[**دانلود راهنمای فارسی کاربران — PDF، نسخهٔ ۳٫۶٫۲**](https://github.com/davidkordmir-source/AD/raw/refs/heads/fast-viewshed-gui/downloads/FastViewshed_User_Guide_FA_v3.6.2.pdf)
+
+راهنمای هشت‌صفحه‌ای نصب، فعال‌سازی آفلاین، آماده‌کردن نقاط و DEM، تنظیم شعاع و
+ارتفاع، خواندن نقشه، خروجی‌ها و رفع اشکال برای تحویل به کاربران نهایی.
+[متن قابل ویرایش راهنما](docs/FastViewshed_User_Guide_FA_v3.6.2.html) و
+[ابزار ساخت PDF](tools/build_user_guide.py) نیز در مخزن موجود است.
+
 [**به‌روزرسانی کوچک از بستهٔ کامل ۳٫۵ یا ۳٫۶٫۰ به ۳٫۶٫۲**](https://github.com/davidkordmir-source/AD/releases/download/v3.6.2-private-kit/FastViewshed_Licensed_Update_v3.6.2.zip)
 
 اصلاحیهٔ ۳٫۶٫۲ خطای اشتباه تشخیص عقب‌بردن ساعت را رفع می‌کند. در همان
